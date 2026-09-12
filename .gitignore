@@ -1,0 +1,6 @@
+.gd_out/
+game/*/.godot/
+game/*/.gd_out/
+gsd-gd/cache/
+__pycache__/
+*.pyc

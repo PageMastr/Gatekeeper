@@ -1,0 +1,162 @@
+Video Link: https://www.youtube.com/watch?v=mjg_JUMar04
+00:00 This video will be different, because in this one, I'm gonna show you how I built this.
+00:07 It was made in Godot.
+00:09 And yes, it's not one prompt.
+00:12 And I want to show you the whole process how I usually work with AI models.
+00:17 And I'm using 4.
+00:18 Fable 5, Opus 5, GPT-5.6 Sol, and Kimi K3.
+00:22 And each of those models has different responsibility.
+00:26 Fable 5 takes the hard calls.
+00:28 What we build and why.
+00:30 Opus 5 writes the mechanics and build models too.
+00:34 GPT-5.6 is my Blender guy, sometimes mechanics too.
+00:38 And Kimi K3 is Blender only.
+00:40 It has a really good feel of aesthetics, I noticed.
+00:44 So how do you start?
+00:45 And that's the hard part.
+00:46 I had a few of these and I finished none.
+00:49 They all looked right, but none of them had a gameplay loop.
+00:53 This one started the same way.
+00:55 I was looking at Pinterest and that one's scene stopped me.
+00:59 And I just wanted to make it a game, so badly.
+01:02 So I made it a reference, not to copy it, to catch the same feeling.
+01:07 And we started with a color bible.
+01:09 But the picture is daylight, and I wanted the same place after dark.
+01:13 So every color gets translated first.
+01:16 From now on, nothing goes in the game without it.
+01:19 Okay, let's make a game.
+01:21 Do not ask for the whole game in one prompt.
+01:23 Let the best model write the plan.
+01:26 Every job then gets its own clean session.
+01:29 And every job ends the same way.
+01:31 A test.
+01:32 If it fails, one job goes back, not the game.
+01:35 So one job, one fresh chat.
+01:38 The model is not carrying 9 other jobs, so it reads less, and to make fewer mistakes.
+01:43 It also uses fewer tokens.
+01:45 So first job on the list.
+01:47 The ground.
+01:48 I told Fable what I wanted.
+01:50 Snow deep in one place, and thin in another.
+01:53 Fable made a plan, and Opus rolled it.
+01:55 It starts flat.
+01:56 Completely flat.
+01:57 Every corner gets asked one question.
+02:00 How high are you?
+02:01 A hundred and ten thousand of them, 60 times a second.
+02:05 You may ask why I do not save the answers once.
+02:08 Because the height keeps changing.
+02:10 A boot presses the snow down, the wind builds a drift up.
+02:14 And I never asked about the whole map.
+02:15 Only a hundred and twenty meters of it.
+02:18 And it slides along with the character.
+02:20 Next house.
+02:21 Some trees and a car.
+02:23 These are just placeholders.
+02:25 The real Blender models come later.
+02:27 Then we put snow on the ground.
+02:30 And remember, the ground has height.
+02:32 So the snow can be deep here and thin there.
+02:36 And now the snow slows you down.
+02:38 Deep snow, you walk.
+02:39 Thin snow, you can run.
+02:41 And finally, footprints.
+02:43 You can see where you walked.
+02:44 It is a small thing, but it makes the world feel alive.
+02:48 Behind the scenes, it works like this.
+02:50 Every step paints into one picture, not a list of footprints.
+02:54 One image, fixed size.
+02:56 The snow reads it.
+02:58 The winds erase it.
+02:59 The enemy rides into the same one.
+03:01 A thousand tracks goes to the same as one.
+03:04 Okay, now let's replace those placeholders with real Blender models.
+03:09 Nobody modeled this house by hand.
+03:11 An AI model wrote a script.
+03:13 Blender run it.
+03:15 Every line adds one piece.
+03:17 So when the roof is wrong, I do not touch the mesh.
+03:20 I fix one line and run it again.
+03:22 Now let's add it to the scene.
+03:24 And yes, it is much better.
+03:26 Let's do the same with trees and a car.
+03:29 Okay, it is starting to look like a game.
+03:32 If you like this video, click subscribe button.
+03:35 Quick tip.
+03:36 Don't ask AI for realistic meshes.
+03:39 It will not deliver.
+03:40 Simple shapes, it does well.
+03:42 This house is just boxes and a roof.
+03:45 The light does the rest and we will work on it in a second.
+03:48 But first, let's replace a character placeholder with the real character.
+03:53 And first, I wanted to create a concept with GPT.
+03:56 So that's the prompt for GPT.
+03:58 And those are the results.
+03:60 And those images goes to Meshy AI.
+04:02 I like to use the tool for generating a character meshes.
+04:06 We have 8000 polygons, which is perfectly fine for a main character.
+04:10 Okay, let's texture it.
+04:11 And that's fine.
+04:12 We will map the colors to our Color Bible later.
+04:16 And this time I also decided to use the animations from Meshy directly.
+04:20 And the rigged character looks much more simple and has like less details and a bit
+04:25 different colors.
+04:26 But as I said, we will fix it and it will look perfectly fine in our game.
+04:31 And there it is.
+04:31 Our new character is in the game.
+04:33 And it looks really, really cool now.
+04:35 Let's just look around.
+04:37 I love those footprints.
+04:38 And the fact that each footprint can have like a different depth.
+04:42 And also the snow that you feel where it's deep.
+04:45 Okay, so we have the character and we have all of the meshes on the map.
+04:48 We will play with the light a bit.
+04:51 About the lighting.
+04:52 It is really helpful to ask your AI model to expose you this kind of lighting control
+04:56 panel with those sliders so we can play around.
+04:59 Of course, if you can't do that directly in the game engine, for example, Godot.
+05:03 So here I have a few presets.
+05:04 Each of them reflects a different daytime.
+05:06 So let's play along.
+05:08 This one is like a flat, a nightfall.
+05:11 And you can see how much this scene changes.
+05:14 Deep night, which is a bit lighter and a white out.
+05:18 Blizzard, a lot more density of the fog and the sunrise.
+05:21 I love this one.
+05:22 It is really warm here.
+05:26 And then pale day, midday.
+05:28 So you can see how much the same scene differs based on the lighting settings.
+05:34 And I love this that you can affect the game a lot this way.
+05:37 And now the enemies.
+05:39 I want very few of them, but every meeting should be able to kill you.
+05:43 Right now there are two.
+05:44 A starving man and bears.
+05:46 I found the bear on Sketchfab with CC attribution and a lot of animations.
+05:50 So I downloaded it.
+05:52 But the bear is realistic here and we need more low poly models.
+05:55 So I asked AI to decimate it in Blender.
+05:57 And here you can see a three stages of decimation.
+06:00 And decimation simply reducing a polygon counts.
+06:03 The man sees you.
+06:04 The bear smells you on the wind.
+06:07 This part is still a prototype.
+06:09 You press F and the gun finds the target.
+06:12 The bear, you cannot outrun ever.
+06:14 So it warns you first and then it charges.
+06:18 It knocks you down and for now you just lie there.
+06:21 Last thing I want to show you.
+06:23 The house interior.
+06:24 It's not a different location, it's the same one.
+06:26 So player sees the danger outside the house.
+06:28 How does it work?
+06:30 Simple.
+06:30 The moment I step inside, the roof and the front wall come off.
+06:34 That's it.
+06:35 But there is also another system.
+06:37 When our character goes behind some object, for example a tree,
+06:40 then the whole shape fades out.
+06:41 How?
+06:42 The camera shoots a ray at me all the time.
+06:46 And that's it guys.
+06:47 If you want more deep dive videos,
+06:49 let me know in the comments.

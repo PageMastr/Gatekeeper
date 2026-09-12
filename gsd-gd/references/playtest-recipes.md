@@ -1,0 +1,112 @@
+# Playtest recipes
+
+`gd playtest <plan>` runs a plan from `<project>/lab/`. It drives the game with
+synthetic input, asserts on numbers, screenshots named moments, measures the
+frame, and writes `verdict.json`.
+
+## Plan anatomy
+
+```json
+{
+  "name": "door-opens",
+  "scene": "res://scenes/station.tscn",
+  "warmup_frames": 30,
+  "timeout_frames": 2400,
+  "probes":  { "player": { "path": "Player", "property": "global_position" } },
+  "steps":   [ { "wait": 20 },
+               { "shot": "spawn" },
+               { "actions": ["move_forward"], "seconds": 2.0, "label": "to_door" },
+               { "actions": ["interact"], "frames": 6 },
+               { "wait": 45 },
+               { "shot": "door_open" } ],
+  "checks":  [ { "name": "reached_door", "kind": "moved", "probe": "player", "min": 4.0 },
+               { "name": "door_open", "kind": "expr", "expr": "get_node('Door').is_open" } ],
+  "perf":    { "sample_frames": 120 }
+}
+```
+
+Steps run pinned at 60 fps, so `"frames": 120` and `"seconds": 2.0` are the same
+thing. Use `seconds` for readability.
+
+`probes` are sampled every frame during steps; that is how `moved` knows path
+length rather than just start-to-end displacement (a player who walks in a
+circle has travelled but not displaced — usually you want to know both, and the
+verdict reports both).
+
+## Check kinds
+
+| kind | fields | asserts |
+|---|---|---|
+| `moved` | `probe`, `min` | total path length of a Vector3 probe ≥ min |
+| `still` | `probe`, `max` | probe barely moved (idle, frozen, anchored) |
+| `node_exists` | `path` | node present in the loaded scene |
+| `prop_between` | `path`, `property`, `min`, `max` | numeric property inside range |
+| `prop_gt` / `prop_lt` | `path`, `property`, `value` | numeric comparison |
+| `prop_eq` | `path`, `property`, `value` | string-compared equality |
+| `expr` | `expr` | arbitrary GDScript `Expression`, evaluated against the scene root |
+
+`property` accepts sub-paths: `"global_position:y"`, `"velocity:x"`.
+
+`expr` is the escape hatch — `"get_node('Player').health < 100"`,
+`"get_tree().get_nodes_in_group('enemy').size() == 3"`. Prefer a typed kind when
+one fits; `expr` failures are harder to read.
+
+## The standing recipes
+
+**`minute_one.json`** — the project's first gate, created by `gd init`. The first
+60 seconds of the Core Loop. Must pass on grey boxes before any asset work.
+
+**`loop_complete.json`** — one entire turn of the Core Loop, including the state
+change that makes turn two different from turn one. This is the gate that
+closes `/gd:greybox`.
+
+**`can_lose.json`** — drive the player into the failure state deliberately and
+assert it happened. A loop you cannot lose is not a loop, and this check is
+routinely forgotten.
+
+**`lab/<system>.json`** — one system, isolated. Gait, camera, weapon feel. Small
+scene, deterministic, fast.
+
+**`perf_worst_case.json`** — the heaviest scene, standing where the most is
+visible, looking at the most expensive direction. Budget gates only mean
+something if they are measured at the worst case, not the spawn point.
+
+## Writing a good check
+
+- **Assert the outcome, not the implementation.** "player moved 4 m" survives a
+  locomotion rewrite; "velocity.z == -4.0" does not.
+- **Bound both sides.** `prop_between` on `global_position:y` catches falling
+  through the floor *and* being launched into orbit. A one-sided check catches
+  half the bugs.
+- **One check, one claim.** A check that fails should tell you what broke.
+- **Include a negative.** Something that should *not* happen. Most regressions
+  are things that started happening.
+- **Screenshot before and after the interesting moment**, not during. A frame
+  mid-transition tells a critic nothing.
+
+## Reading a verdict
+
+`verdict.json` lands in `<project>/.gd_out/<plan>/` next to `shots/`.
+
+- `checks[]` — per-check pass/fail with the actual measured value in `detail`.
+- `perf` — `fps_avg`, `fps_1pct_low`, `frame_ms_worst`, `draw_calls_max`,
+  `primitives_max`, `lights`, `shadow_lights`.
+- `budget_fails[]` — budget violations from `gsd-gd/config.json`.
+- `runtime_errors[]` — `SCRIPT ERROR` lines scraped from the process output. The
+  harness cannot see these; a run that "passed" while spraying script errors has
+  not passed, so they fail the verdict.
+- `shot_files[]` — hand these to `gd-critic`. **Not** to the agent that built
+  the thing.
+
+Exit code is 0 only if every check, every budget, and zero runtime errors agree.
+
+## When the harness itself is the problem
+
+- *"harness produced no verdict"* → the harness scene failed to load. Look for a
+  GDScript parse error in the log tail. `--quit-after` means it will not hang.
+- *`input_action:<name>` failed* → the plan presses an action the project does
+  not define. Fix `project.godot` or the plan; this is a real drift finding.
+- *`shot:<label>` failed with "cannot screenshot under --headless"* → drop
+  `--headless`. The dummy renderer has no framebuffer to read.
+- *Every movement check fails with a tiny path length* → you are probably not
+  on the pinned clock; check `STEP_FPS` handling in `gd_playtest.gd`.

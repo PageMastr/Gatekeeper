@@ -1,0 +1,37 @@
+{
+  "$schema": "./config.schema.json",
+  "system": "gsd-gd",
+  "version": "1.0.0",
+  "toolchain": {
+    "godot": {
+      "editor": "D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.exe",
+      "console": "D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe",
+      "version": "4.7.2-rc",
+      "source_root": "D:/Godot/GodotEngine",
+      "notes": "Use `console` for every agent-driven invocation: the plain .exe detaches from the terminal on Windows and you lose stdout."
+    },
+    "blender": {
+      "exe": "D:/Program Files/Blender Foundation/Blender 5.1/blender.exe",
+      "version": "5.1.2",
+      "python": "3.13.9"
+    }
+  },
+  "defaults": {
+    "playtest_resolution": "640x360",
+    "playtest_warmup_frames": 30,
+    "playtest_sample_frames": 120,
+    "shot_resolution": "1280x720"
+  },
+  "budget": {
+    "min_fps": 60,
+    "max_draw_calls": 1200,
+    "max_shadow_casting_lights": 4,
+    "max_tris_per_frame": 900000,
+    "max_asset_tris": {
+      "prop": 1500,
+      "hero_prop": 6000,
+      "character": 12000,
+      "environment_module": 3000
+    }
+  }
+}

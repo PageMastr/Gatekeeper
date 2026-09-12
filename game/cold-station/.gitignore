@@ -1,0 +1,4 @@
+.godot/
+.gd_out/
+export/
+*.tmp

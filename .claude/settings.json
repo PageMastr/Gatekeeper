@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(python gsd-gd/bin/gd.py:*)",
+      "Bash(python gsd-gd/bin/gddoc.py:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)",
+      "Bash(D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe --headless:*)",
+      "Bash(D:/Program Files/Blender Foundation/Blender 5.1/blender.exe -b:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Read(./game/**/.godot/**)",
+      "Read(./gsd-gd/cache/godot-api-index.json)"
+    ]
+  },
+  "env": {
+    "GD_GODOT": "D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe",
+    "GD_GODOT_SOURCE": "D:/Godot/GodotEngine",
+    "GD_BLENDER": "D:/Program Files/Blender Foundation/Blender 5.1/blender.exe"
+  }
+}
