@@ -38,6 +38,10 @@ specifically to catch those:
    │                   └─ ONE WHOLE TURN of the loop, playable in grey,
    │                      including a way to lose — before any art exists
    └─ contracts first: the reference, the Color Bible, the Core Loop, Minute One
+
+   \_______________/          \_____________________________________/
+    /gd:plan at kickoff        /gd:run drives these autonomously, halting at
+    does both, + roadmap       one-way doors and at the phase gate
 ```
 
 Other deliberate departures from GSD Core:
@@ -53,25 +57,49 @@ Other deliberate departures from GSD Core:
 
 ---
 
-## Install / verify
+## Getting started
 
-Nothing to install — Python 3, Godot and Blender are already here.
-
-```bash
-python gsd-gd/bin/gd.py doctor        # verify the whole toolchain
-python gsd-gd/bin/gddoc.py index      # build the Godot 4.7 API index (~8s)
-python gsd-gd/bin/gd.py init "My Game"
-```
-
-`init` scaffolds `game/<slug>/` with a **playable greybox** (floor, wall,
-character, lighting rig, F9 debug panel), installs the playtest harness, writes
-the `.planning/` contracts, and generates `Palette` from the Color Bible.
-
-Then, in Claude Code:
+Nothing to install — Python 3, Godot and Blender are already here. In Claude
+Code, two commands per phase is the whole loop:
 
 ```
-/gd:frame   a snowbound cabin at night, one fire, something out there
+/gd:plan  a snowbound cabin at night, one fire, something out there
 ```
+
+Kickoff interviews you (reference, loop, tension, one-way doors, scope), writes
+the contracts and the roadmap, scaffolds the Godot project with a **playable
+greybox** already in it, decomposes phase 1 into one-session jobs, and arms the
+driver.
+
+```
+/gd:run
+```
+
+Drives the phase: dispatches waves of agents in parallel with fresh contexts,
+grades every gate itself, escalates a failing job up the model ladder, commits
+per job — and **halts at one-way doors and at the phase gate** so you play it
+before any art gets made.
+
+Then `/gd:playtest` for the human pass and `/gd:ship` to close the phase.
+`/gd:next` will always tell you the single next action.
+
+Every granular beat is still there (`/gd:frame`, `/gd:build`, `/gd:asset`,
+`/gd:lab`, `/gd:light`, `/gd:perf`, `/gd:gauntlet`) for when you want to steer
+one part by hand.
+
+### How autonomous is it?
+
+`/gd:run` is the autonomous layer, and it stops in exactly three situations:
+
+| it stops when | because |
+|---|---|
+| the phase gate goes green | a human decides whether the loop is worth playing twice — that is Law 1, and no assertion replaces it |
+| it hits a one-way door | animation approach, coordinate scale, streaming model. Taken inside a parallel wave, you find out four jobs later |
+| a job exhausts the model ladder | 3 attempts each at its tier, the next, and the top. Nine failures means the **job or its gate** is wrong, not the model |
+
+The state machine lives in `gd run`, not in a prompt: wave order, checkpoints
+and the escalation ladder are all in `RUN.json`, so a run survives Ctrl+C, a
+crash, or a `/clear` — `/gd:run` picks up exactly where it stopped.
 
 ---
 
@@ -102,7 +130,7 @@ Doctrine that is only written down gets skipped. These are mechanical:
 
 | rule | enforced by |
 |---|---|
-| no asset work before the loop is proven | `/gd:build` refuses while `greybox_passed: no` |
+| no asset work before the loop is proven | `/gd:build` and `/gd:run` refuse while `greybox_passed: no` |
 | no colour outside the Color Bible | `gdblend.mat()` raises; `Palette.get_color()` asserts; `check_palette()` fails the build |
 | every asset is measured | bootstrap fails a generator that never calls `report()` |
 | kit modules tile | `check_grid()` measures every bound against the 0.25 m snap grid |
@@ -111,6 +139,9 @@ Doctrine that is only written down gets skipped. These are mechanical:
 | fps / draw calls / shadow-light count | `gd playtest` fails the verdict on budget |
 | runtime script errors | scraped from the process output; they fail an otherwise-passing run |
 | no Godot 3 API | `gd check` = engine analyser + 3.x-ism scan |
+| model routing has a reason | stored per agent in `config.json`; `gd models` flags drift vs agent frontmatter |
+| a failing job escalates, then stops | `gd run` owns the ladder — no agent grants itself a fourth attempt |
+| an incomplete plan cannot be driven | `gd run init` refuses placeholder gates and untitled jobs |
 | licences logged | `/gd:ship` cross-checks `CREDITS.md` against assets on disk |
 
 ---
@@ -136,13 +167,14 @@ generator.py ──blender -b──> asset.glb ──godot --import──> .scn 
 CLAUDE.md                    the constitution, loaded every session
 .claude/
   commands/gd/*.md           15 slash commands
-  agents/*.md                9 agents, each routed to a model by role
+  agents/*.md                10 agents, each routed to a model by role
   skills/godot-api/          the API-lookup discipline
   settings.json              toolchain permissions
 gsd-gd/
   config.json                toolchain paths + budgets (the only place they live)
-  bin/gd.py                  the CLI: doctor, init, state, phase, palette, check,
-                             blender, asset, godot, playtest, credits, harness
+  bin/gd.py                  the CLI: doctor, init, state, phase, palette, models,
+                             run, check, blender, asset, godot, playtest,
+                             credits, harness
   bin/gddoc.py               local Godot 4.7 reference: class, member, search,
                              exists, scan, index
   lib/gdblend/               Blender library: palette contract, grid/dim checks,
@@ -150,8 +182,8 @@ gsd-gd/
   harness/godot/             gd_playtest (measure+look+perf), gd_lighting_rig,
                              gd_lighting_panel
   harness/blender/           bootstrap that guarantees one machine-readable result
-  templates/                 STATE, CONTEXT, COLOR_BIBLE, CORE_LOOP, BUDGET,
-                             CREDITS, PLAN, JOB, ASSET_SPEC, greybox scene
+  templates/                 STATE, CONTEXT, COLOR_BIBLE, CORE_LOOP, ROADMAP,
+                             BUDGET, CREDITS, PLAN, JOB, ASSET_SPEC, greybox scene
   references/                laws, toolchain, godot-patterns, blender-patterns,
                              gdscript-4x, playtest-recipes, model-routing
   cache/                     the API index (generated)
@@ -165,8 +197,9 @@ game/<slug>/                 the Godot project
 
 | | |
 |---|---|
-| `/gd:frame` | idea → reference, Color Bible, Core Loop, Minute One |
-| `/gd:plan` | milestone → one-session jobs, waves, checkpoints |
+| `/gd:plan` | **entry point** — kickoff (interview → contracts → roadmap → phase 1) or next milestone |
+| `/gd:run` | **drive the phase** — waves, grading, escalation, to the gate |
+| `/gd:frame` | revisit the contracts alone, without re-planning |
 | `/gd:greybox` | prove one whole turn of the loop in grey, incl. losing |
 | `/gd:build` | run the next wave, fresh context per job |
 | `/gd:gauntlet` | candidates + independent critic + numeric vetoes, until good |

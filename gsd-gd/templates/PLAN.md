@@ -14,8 +14,16 @@ The phase is done when these are all green — not when the jobs are finished.
 
 - [ ] <observable outcome, verified by a named playtest plan or metric>
 - [ ] <…>
-- [ ] `gd playtest lab/<plan>.json` passes
 - [ ] No budget regressions vs previous phase
+
+## Phase gate
+
+Machine-readable. `gd run` treats these as the phase's definition of done and
+re-runs them after every wave; `/gd:run` halts here for you to play it. Every
+line must be a command that exits non-zero on failure.
+
+- gate: python gsd-gd/bin/gd.py check
+- gate: python gsd-gd/bin/gd.py playtest <plan>
 
 ## Jobs
 
@@ -23,11 +31,15 @@ One job = one fresh session = one testable gate. If a job needs two sessions to
 hold in context, it is two jobs. Jobs in the same wave must not touch the same
 files.
 
-| # | job | agent | wave | touches | gate |
-|---|---|---|---|---|---|
-| 1 | | gd-mechanics | 1 | | |
-| 2 | | gd-modeler | 1 | | |
-| 3 | | gd-mechanics | 2 | | |
+`model` is optional — leave it blank and the agent's default from
+`references/model-routing.md` is used. `gd run` escalates it on repeated
+failure; do not hand-edit it mid-run.
+
+| # | job | agent | model | wave | touches | gate |
+|---|---|---|---|---|---|---|
+| 1 | | gd-mechanics | | 1 | | |
+| 2 | | gd-modeler | | 1 | | |
+| 3 | | gd-mechanics | | 2 | | |
 
 ### Waves
 

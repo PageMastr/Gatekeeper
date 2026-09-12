@@ -14,19 +14,27 @@ Work down this table and stop at the first row that matches. The order encodes
 the laws: contracts before plans, the loop before the look, a green gate before
 more building.
 
+Also read the driver's own view, which is authoritative about the current phase:
+
+```bash
+python gsd-gd/bin/gd.py run status 2>/dev/null
+python gsd-gd/bin/gd.py run next 2>/dev/null
+```
+
 | condition | next |
 |---|---|
-| no `.planning/` | `gd init "<name>"`, then `/gd:frame` |
-| `loop_locked: no` or `palette_locked: no` | `/gd:frame` |
-| no current phase | `/gd:plan "<milestone>"` |
-| `greybox_passed: no` | `/gd:greybox` |
-| a gate is failing | `/gd:build` with that one job (Law 2: one job goes back, not the game) |
-| `gd check` reports GDScript errors | fix them with the `godot-api` skill first; nothing else is trustworthy until it is clean |
+| no `.planning/`, or contracts not locked | `/gd:plan "<the idea>"` - kickoff runs the interview, contracts and roadmap |
+| contracts locked, no current phase | `/gd:plan "<milestone>"` |
+| `run next` says `dispatch` | `/gd:run` |
+| `run next` says `checkpoint` | `/gd:run` - it will surface the one-way door for you to decide |
+| `run next` says `stop` | read the stop reason; a ladder-exhausted job means the **job or its gate** is wrong, not the model. Usually `/gd:plan` to re-cut that job, or `/gd:gauntlet` if it is aesthetic |
+| `run next` says `phase_gate` | `/gd:run` finishes it, then `/gd:playtest` and `/gd:ship` |
+| `greybox_passed: no` and the phase builds assets | `/gd:greybox` first - Law 1 |
+| `gd check` reports GDScript errors | fix them with the `godot-api` skill; nothing downstream is trustworthy until it is clean |
 | a budget is failing | `/gd:perf` |
 | an asset came back weak twice | `/gd:gauntlet` on it - a third guess is not a plan |
-| jobs remain in the wave | `/gd:build` |
-| all jobs done, gates green | `/gd:playtest`, then `/gd:ship` |
-| phase shipped | `/gd:frame` or `/gd:plan` for the next milestone |
+| phase gate green | `/gd:playtest` for the human pass, then `/gd:ship` |
+| phase shipped | `/gd:plan` for the next milestone on the roadmap |
 
 State the next action as a command, with one sentence of why. If two rows are
 arguably live, say which you chose and what you are deferring - do not present

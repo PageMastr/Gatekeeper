@@ -16,6 +16,54 @@
       "python": "3.13.9"
     }
   },
+  "models": {
+    "_doc": "Starting model per agent, and the escalation ladder `gd run` climbs when a job keeps failing its gate. Route on capability, not on headline per-token price: on a long build, cached-input reads dominate the bill, so a stronger model with cheaper cache reads can finish a phase for less than a weaker one. Reserve the top tier for work where the quality gap is visible to the player.",
+    "ladder": ["haiku", "sonnet", "opus", "fable"],
+    "attempts_per_tier": 3,
+    "agents": {
+      "gd-planner": {
+        "model": "fable",
+        "why": "decomposition and judgement; every job downstream inherits its mistakes, and it runs once per phase so the cost is small"
+      },
+      "gd-art-director": {
+        "model": "fable",
+        "why": "palette and lighting contracts are taste, and taste is where models differ most visibly"
+      },
+      "gd-critic": {
+        "model": "fable",
+        "why": "pure visual judgement; a weak critic silently lowers the ceiling of every gauntlet round it accepts"
+      },
+      "gd-modeler": {
+        "model": "fable",
+        "why": "asset work is an aesthetic task disguised as a scripting task"
+      },
+      "gd-mechanics": {
+        "model": "opus",
+        "why": "engine systems, physics, shaders - correctness-critical and the highest-volume role, so not the place for the priciest tier"
+      },
+      "gd-rigger": {
+        "model": "opus",
+        "why": "precise iterative math across many attempts"
+      },
+      "gd-perf": {
+        "model": "opus",
+        "why": "diagnosis; a wrong bisection wastes the whole session, but the triage order is already written down"
+      },
+      "gd-playtester": {
+        "model": "sonnet",
+        "why": "mechanical - write the plan, run it, report the numbers. No judgement required, and it runs constantly"
+      },
+      "gd-researcher": {
+        "model": "sonnet",
+        "why": "volume reading, summary out, and every claim is checked against the local API index anyway"
+      },
+      "gd-scribe": {
+        "model": "sonnet",
+        "why": "documentation and learnings extraction - reads a lot, writes prose, no engine judgement"
+      }
+    },
+    "_haiku_note": "Nothing defaults to haiku. It sits on the ladder as a floor for future cheap roles; no current agent's job is mechanical enough to justify it, and a wrong answer from a gate-facing agent costs more than the tier saves."
+  },
   "defaults": {
     "playtest_resolution": "640x360",
     "playtest_warmup_frames": 30,

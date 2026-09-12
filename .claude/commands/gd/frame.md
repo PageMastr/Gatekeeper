@@ -6,6 +6,11 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 
 # /gd:frame — lock the contracts before anything is built
 
+> **Most of the time you want `/gd:plan` instead.** At kickoff `/gd:plan` runs
+> this interview *and* the roadmap *and* phase 1's decomposition in one guided
+> pass. Use `/gd:frame` when the contracts alone need revisiting — the loop is
+> not working, or the palette is fighting the assets — without re-planning.
+
 @gsd-gd/references/laws.md
 
 Read the laws above. This beat exists to satisfy Law 1 (the loop before the look)

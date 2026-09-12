@@ -11,6 +11,8 @@ Gather, then summarise. Do not editorialise; report what the tools say.
 python gsd-gd/bin/gd.py doctor
 python gsd-gd/bin/gd.py state
 python gsd-gd/bin/gd.py phase list
+python gsd-gd/bin/gd.py run status
+python gsd-gd/bin/gd.py models
 python gsd-gd/bin/gd.py check
 git -C . log --oneline -10
 git -C . status --short
@@ -31,7 +33,9 @@ A short table, in this order:
 | | |
 |---|---|
 | beat | from STATE.md |
-| phase | current phase, jobs done / total |
+| phase | current phase, jobs done / total, driver status |
+| driver | what `run next` says, and any open one-way door |
+| escalations | jobs not on their starting model, and how many attempts they have burned |
 | loop locked / palette locked / greybox passed | yes-no, from STATE.md |
 | gates | n passing, m failing, which |
 | GDScript check | clean, or the failing files |

@@ -35,6 +35,8 @@ python gsd-gd/bin/gd.py <verb>
 | `state [k] [v]` | read/write `.planning/STATE.md` |
 | `phase new\|list\|current` | phase directories |
 | `palette` | regenerate `res://scripts/palette.gd` from the Color Bible |
+| `models` | show model routing per agent + flag config/frontmatter drift |
+| `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
 | `check [files]` | **GDScript gate** — engine type-check + Godot-3-ism scan |
 | `blender <script.py>` | run a Blender script headless with `gdblend` on path |
 | `asset <generator.py>` | generator → GLB → project → reimport, gated on metrics |
@@ -60,7 +62,20 @@ python gsd-gd/bin/gddoc.py <verb>
 Every verb of both tools prints one `GD<VERB> {json}` line. Parse that, not the
 log noise.
 
-## The beat loop
+## How a session normally goes
+
+```
+/gd:plan <idea>     kickoff: interview -> contracts -> roadmap -> phase 1 jobs
+/gd:run             drive the phase until the gate is green or a door blocks
+```
+
+`/gd:plan` is context-aware: with no contracts it runs the full kickoff
+interview; with contracts locked it plans the next milestone from the roadmap.
+`/gd:run` then dispatches waves, grades every gate itself, escalates a failing
+job up the model ladder, and **halts at one-way doors and at the phase gate** so
+a human plays it before art starts.
+
+Beats underneath, all still callable by hand:
 
 `/gd:frame` → `/gd:plan` → `/gd:greybox` → `/gd:build` → `/gd:gauntlet` →
 `/gd:playtest` → `/gd:ship`
@@ -68,13 +83,17 @@ log noise.
 Utilities: `/gd:asset`, `/gd:lab`, `/gd:light`, `/gd:perf`, `/gd:api`,
 `/gd:status`, `/gd:next`, `/gd:help`.
 
+Everything runs through the slash commands — you should never need to type a
+bare `python gsd-gd/...` command yourself; the commands do it.
+
 ## Hard rules
 
 These are enforced by tooling, not just convention. Do not work around them.
 
 1. **The loop before the look.** `.planning/CORE_LOOP.md` first; one complete
    turn of the loop playable on grey boxes — with a reachable failure state —
-   before any asset work. `/gd:build` refuses while `greybox_passed: no`.
+   before any asset work. `/gd:build` and `/gd:run` refuse asset work while
+   `greybox_passed: no`.
 2. **One job, one fresh session, one gate written before the job starts.** When
    a gate fails, one job goes back — not the game.
 3. **A builder never grades its own work.** Screenshots go to `gd-critic`.
@@ -89,7 +108,12 @@ These are enforced by tooling, not just convention. Do not work around them.
 7. **Shadows are rationed.** Budget in `gsd-gd/config.json`; enforced at runtime
    by `GDLightingRig.enforce_shadows()` and at gate time by `gd playtest`.
 8. **Log the licence when the asset lands**, not at ship time.
-9. **No GDScript from memory.** Most training data is Godot 3; Godot 4 renamed,
+9. **Model routing lives in `config.json` → `models`**, never hardcoded. Each
+   agent's starting model is stored with the reason it was chosen, and
+   `gd models` flags drift against the agent frontmatter. `gd run` owns the
+   escalation ladder (3 attempts per tier, then climb) — no agent may grant
+   itself a fourth attempt or pick its own model.
+10. **No GDScript from memory.** Most training data is Godot 3; Godot 4 renamed,
    moved and deleted much of the API, so recalled GDScript looks right and fails
    at runtime. Before writing engine code, look every type up in the local
    version-exact reference (`gddoc`, or the `godot-api` skill). Use static types

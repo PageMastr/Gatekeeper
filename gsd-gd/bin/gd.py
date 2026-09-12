@@ -189,6 +189,7 @@ def cmd_init(a) -> int:
                     ("COLOR_BIBLE.md", PLANNING / "COLOR_BIBLE.md"),
                     ("CORE_LOOP.md", PLANNING / "CORE_LOOP.md"),
                     ("BUDGET.md", PLANNING / "BUDGET.md"),
+                    ("ROADMAP.md", PLANNING / "ROADMAP.md"),
                     ("CREDITS.md", PLANNING / "CREDITS.md")):
         if dest.exists() and not a.force:
             continue
@@ -298,6 +299,409 @@ def cmd_phase(a) -> int:
         emit("phase", {"ok": True, "current": cur})
         return 0
     die("unknown phase action " + str(a.action))
+
+
+# --------------------------------------------------------------------------- #
+# run  (the phase driver's bookkeeping brain)
+# --------------------------------------------------------------------------- #
+# Model routing lives in config.json (`models`), not here - it is a tuning
+# decision, and burying it in code means it gets changed in two places.
+# These are only the fallbacks if the config block is missing entirely.
+_FALLBACK_LADDER = ["haiku", "sonnet", "opus", "fable"]
+_FALLBACK_ATTEMPTS = 3
+
+
+def models_cfg() -> dict:
+    return cfg().get("models") or {}
+
+
+def model_ladder() -> list:
+    return models_cfg().get("ladder") or _FALLBACK_LADDER
+
+
+def attempts_per_tier() -> int:
+    return int(models_cfg().get("attempts_per_tier") or _FALLBACK_ATTEMPTS)
+
+
+def agent_model(agent: str) -> str:
+    """Starting model for an agent. Accepts either {"model": x, "why": ...} or a
+    bare string in config, so the file stays easy to hand-edit."""
+    entry = (models_cfg().get("agents") or {}).get(agent)
+    if isinstance(entry, dict):
+        m = entry.get("model")
+    elif isinstance(entry, str):
+        m = entry
+    else:
+        m = None
+    if not m:
+        # Unknown agent: start one tier below the top rather than guessing high.
+        ladder = model_ladder()
+        m = ladder[max(len(ladder) - 2, 0)]
+    return m
+
+
+def cmd_models(a) -> int:
+    """Show the routing table, and flag drift.
+
+    Two places name a model: `models.agents` in config.json (what `gd run`
+    dispatches and escalates with) and the `model:` frontmatter of each
+    .claude/agents/*.md (what Claude Code uses when an agent is spawned by name
+    with no override). They must agree, and nothing would otherwise tell you
+    when they stop agreeing.
+    """
+    mc = models_cfg()
+    agents_cfg = mc.get("agents") or {}
+    rows, drift = [], []
+    agent_dir = ROOT / ".claude" / "agents"
+    for name in sorted(set(agents_cfg) | {p.stem for p in agent_dir.glob("gd-*.md")}):
+        want = agent_model(name) if name in agents_cfg else None
+        entry = agents_cfg.get(name)
+        why = entry.get("why", "") if isinstance(entry, dict) else ""
+        fm = None
+        f = agent_dir / (name + ".md")
+        if f.exists():
+            m = re.search(r"^model:\s*(\S+)\s*$", f.read_text(encoding="utf-8"), re.M)
+            fm = m.group(1) if m else None
+        rows.append({"agent": name, "config": want, "frontmatter": fm, "why": why,
+                     "defined": f.exists()})
+        if want and fm and want != fm:
+            drift.append("%s: config=%s frontmatter=%s" % (name, want, fm))
+        if want and not f.exists():
+            drift.append("%s: in config but no .claude/agents/%s.md" % (name, name))
+        if fm and not want:
+            drift.append("%s: agent file exists but no config entry" % name)
+
+    emit("models", {"ok": not drift, "ladder": model_ladder(),
+                    "attempts_per_tier": attempts_per_tier(),
+                    "agents": rows, "drift": drift})
+    print("  ladder   " + " -> ".join(model_ladder())
+          + "   (%d attempts per tier before escalating)" % attempts_per_tier())
+    print("")
+    for r in rows:
+        mark = " " if (not r["config"] or r["config"] == r["frontmatter"]) else "!"
+        print("%s %-18s %-7s %s" % (mark, r["agent"], r["config"] or "-", r["why"][:96]))
+    if drift:
+        print("\n  DRIFT - config and agent frontmatter disagree:")
+        for d in drift:
+            print("    " + d)
+        print("  Fix the frontmatter to match config.json; config is the source of truth.")
+    return 0 if not drift else 1
+
+
+def phase_dir(name=None) -> Path:
+    phases = PLANNING / "phases"
+    if name:
+        d = phases / name
+        if not d.is_dir():
+            matches = sorted(p for p in phases.glob(name + "*") if p.is_dir()) if phases.is_dir() else []
+            if not matches:
+                die("no such phase: " + name)
+            d = matches[0]
+        return d
+    cur = parse_state(state_path().read_text(encoding="utf-8")).get("phase")
+    if cur and cur not in ("none", ""):
+        d = phases / cur
+        if d.is_dir():
+            return d
+    dirs = sorted(p for p in phases.iterdir() if p.is_dir()) if phases.is_dir() else []
+    if not dirs:
+        die("no phases yet - run /gd:plan")
+    return dirs[-1]
+
+
+def _rows(text: str, header_key: str):
+    """Rows of the markdown table whose header's first cell is header_key, as
+    dicts keyed by column name.
+
+    Keyed by name, not index, because these tables are written by hand (or by an
+    agent) and columns get reordered or left out. An index-based parser silently
+    reads the wave number as the model name, which is a very confusing bug to
+    chase from the other end.
+    """
+    out, cols = [], None
+    for line in text.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            cols = None
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if cols is None:
+            if cells and cells[0].lower() == header_key:
+                cols = [c.lower() for c in cells]
+            continue
+        if set("".join(cells)) <= {"-", ":", " "}:
+            continue
+        out.append({cols[i]: cells[i].strip() for i in range(min(len(cols), len(cells)))})
+    return out
+
+
+def parse_plan(plan: Path) -> dict:
+    text = plan.read_text(encoding="utf-8")
+    jobs = {}
+    for row in _rows(text, "#"):
+        jid = row.get("#", "")
+        if not re.fullmatch(r"\d+", jid):
+            continue
+        agent = row.get("agent") or "gd-mechanics"
+        model = row.get("model") or agent_model(agent)
+        wave = row.get("wave", "")
+        jobs["%02d" % int(jid)] = {
+            "title": row.get("job", ""), "agent": agent,
+            "wave": int(wave) if wave.isdigit() else 1,
+            "touches": row.get("touches", ""), "gate": row.get("gate", ""),
+            "status": "pending", "model": model, "start_model": model,
+            "attempts_at_tier": 0, "total_attempts": 0, "history": [],
+        }
+    checkpoints = []
+    for row in _rows(text, "after job"):
+        aj = row.get("after job", "")
+        if aj:
+            checkpoints.append({"after_job": "%02d" % int(aj) if aj.isdigit() else aj,
+                                "decision": row.get("decision", ""),
+                                "resolved": False})
+    gates = [m.group(1).strip() for m in re.finditer(r"^-\s+gate:\s*(.+)$", text, re.M)]
+    return {"jobs": jobs, "checkpoints": checkpoints, "phase_gate": gates}
+
+
+def run_file(d: Path) -> Path:
+    return d / "RUN.json"
+
+
+def load_run(d: Path) -> dict:
+    f = run_file(d)
+    if not f.exists():
+        die("no RUN.json in " + d.name + " - run `gd run init` first")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+def save_run(d: Path, r: dict) -> None:
+    r["updated"] = now()
+    run_file(d).write_text(json.dumps(r, indent=2), encoding="utf-8")
+
+
+def cmd_run(a) -> int:
+    d = phase_dir(a.phase)
+    act = a.action
+
+    if act == "init":
+        plan = d / "PLAN.md"
+        if not plan.exists():
+            die("no PLAN.md in " + str(d))
+        parsed = parse_plan(plan)
+        if not parsed["jobs"]:
+            die("PLAN.md has no job rows - the Jobs table is still the template")
+        # Refuse a plan that is still partly boilerplate. Left alone, a
+        # placeholder gate fails much later with a baffling shell error, and an
+        # untitled job gets dispatched to an agent with no objective.
+        problems = []
+        for jid, j in sorted(parsed["jobs"].items()):
+            if not j["title"]:
+                problems.append("job %s has no title" % jid)
+            if not j["gate"]:
+                problems.append("job %s has no gate - a job without a gate is a wish" % jid)
+            elif re.search(r"[<>]", j["gate"]):
+                problems.append("job %s gate is still a placeholder: %s" % (jid, j["gate"]))
+        if not parsed["phase_gate"]:
+            problems.append("PLAN.md has no `- gate:` lines - the phase has no "
+                            "machine-readable definition of done")
+        for g in parsed["phase_gate"]:
+            if re.search(r"[<>]", g):
+                problems.append("phase gate is still a placeholder: " + g)
+        if problems and not a.force:
+            emit("run", {"ok": False, "action": "init", "phase": d.name,
+                         "reason": "PLAN.md is incomplete", "problems": problems})
+            for pb in problems:
+                print("  [FAIL] " + pb)
+            print("\n  Finish PLAN.md (see /gd:plan), then run this again.")
+            return 1
+        if run_file(d).exists() and not a.force:
+            die("RUN.json already exists (use --force to restart the phase)")
+        r = {"phase": d.name, "created": now(), "updated": now(),
+             "status": "running", "stop_reason": None,
+             "model_ladder": model_ladder(), "attempts_per_tier": attempts_per_tier(),
+             "waves_completed": [], "gate_runs": [], **parsed}
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "init", "phase": d.name,
+                     "jobs": len(r["jobs"]), "waves": sorted({j["wave"] for j in r["jobs"].values()}),
+                     "checkpoints": len(r["checkpoints"]), "phase_gate": r["phase_gate"]})
+        return 0
+
+    r = load_run(d)
+
+    if act == "next":
+        payload = run_next(r)
+        emit("run", {"ok": True, "action": "next", "phase": d.name, **payload})
+        print("  " + payload["action"] + ": " + payload.get("why", ""))
+        for j in payload.get("jobs", []):
+            print("    job %s  %s  model=%s  gate=%s" % (j["id"], j["agent"], j["model"], j["gate"]))
+        return 0
+
+    if act == "record":
+        if not a.job or a.result not in ("pass", "fail"):
+            die("`gd run record <job> pass|fail [--note ...]`")
+        jid = "%02d" % int(a.job) if str(a.job).isdigit() else str(a.job)
+        if jid not in r["jobs"]:
+            die("no job " + jid + " in " + d.name)
+        j = r["jobs"][jid]
+        j["total_attempts"] += 1
+        j["attempts_at_tier"] += 1
+        j["history"].append({"at": now(), "model": j["model"],
+                             "result": a.result, "note": (a.note or "")[:500]})
+        escalated = None
+        if a.result == "pass":
+            j["status"] = "passed"
+        else:
+            # Escalation ladder from config: N attempts at the current tier,
+            # then climb. At the top tier, a full tier of failures stops the run -
+            # the problem is the job or the gate, not the model.
+            ladder = model_ladder()
+            per_tier = attempts_per_tier()
+            if j["attempts_at_tier"] >= per_tier:
+                cur = j["model"] if j["model"] in ladder else ladder[-2]
+                i = ladder.index(cur)
+                if i < len(ladder) - 1:
+                    j["model"] = ladder[i + 1]
+                    j["attempts_at_tier"] = 0
+                    j["status"] = "pending"
+                    escalated = j["model"]
+                else:
+                    j["status"] = "blocked"
+                    r["status"] = "blocked"
+                    r["stop_reason"] = ("job %s failed %d times at the top of the model "
+                                        "ladder (%s) - the job or its gate is wrong, not the model"
+                                        % (jid, j["total_attempts"], cur))
+            else:
+                j["status"] = "pending"
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "record", "job": jid, "result": a.result,
+                     "status": j["status"], "model": j["model"], "escalated_to": escalated,
+                     "attempts_at_tier": j["attempts_at_tier"],
+                     "total_attempts": j["total_attempts"],
+                     "run_status": r["status"], "stop_reason": r["stop_reason"]})
+        if escalated:
+            print("  job %s: %d failures at that tier -> escalated to %s"
+                  % (jid, attempts_per_tier(), escalated))
+        elif j["status"] == "blocked":
+            print("  job %s: BLOCKED. %s" % (jid, r["stop_reason"]))
+        return 0
+
+    if act == "gate":
+        gates = r.get("phase_gate") or []
+        if not gates:
+            die("PLAN.md defines no `- gate:` lines - the phase has no definition of done")
+        results = []
+        for cmd_s in gates:
+            p = subprocess.run(cmd_s, shell=True, cwd=str(ROOT), capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=a.timeout)
+            tail = strip_ansi((p.stdout or "") + (p.stderr or ""))[-600:]
+            results.append({"cmd": cmd_s, "ok": p.returncode == 0,
+                            "exit": p.returncode, "tail": tail})
+        ok = all(x["ok"] for x in results)
+        r["gate_runs"].append({"at": now(), "ok": ok,
+                               "failed": [x["cmd"] for x in results if not x["ok"]]})
+        if ok:
+            r["status"] = "gate_green"
+        save_run(d, r)
+        emit("run", {"ok": ok, "action": "gate", "phase": d.name, "results": results})
+        for x in results:
+            print(("  [ok]   " if x["ok"] else "  [FAIL] ") + x["cmd"])
+            if not x["ok"]:
+                print("         " + x["tail"].replace("\n", "\n         ")[:900])
+        return 0 if ok else 1
+
+    if act == "resolve":
+        if not a.job:
+            die("`gd run resolve <after_job>` - the job the checkpoint follows")
+        jid = "%02d" % int(a.job) if str(a.job).isdigit() else str(a.job)
+        hit = [c for c in r["checkpoints"] if c["after_job"] == jid]
+        if not hit:
+            die("no checkpoint after job " + jid)
+        for c in hit:
+            c["resolved"] = True
+            c["resolved_at"] = now()
+            c["resolution"] = a.note or ""
+        if r["status"] == "blocked" and "checkpoint" in (r.get("stop_reason") or ""):
+            r["status"] = "running"
+            r["stop_reason"] = None
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "resolve", "after_job": jid,
+                     "resolution": a.note or "", "run_status": r["status"]})
+        return 0
+
+    if act == "block":
+        r["status"] = "blocked"
+        r["stop_reason"] = a.note or "blocked by operator"
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "block", "stop_reason": r["stop_reason"]})
+        return 0
+
+    if act == "complete":
+        r["status"] = "complete"
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "complete", "phase": d.name})
+        return 0
+
+    if act == "status":
+        by_status = {}
+        for jid, j in sorted(r["jobs"].items()):
+            by_status.setdefault(j["status"], []).append(jid)
+        emit("run", {"ok": True, "action": "status", "phase": d.name,
+                     "run_status": r["status"], "stop_reason": r.get("stop_reason"),
+                     "by_status": by_status,
+                     "phase_gate": r.get("phase_gate"),
+                     "last_gate": (r.get("gate_runs") or [None])[-1]})
+        print("  phase   %s   [%s]" % (d.name, r["status"]))
+        if r.get("stop_reason"):
+            print("  stop    " + r["stop_reason"])
+        for jid, j in sorted(r["jobs"].items()):
+            print("  job %s  %-9s wave %s  %-14s %s  (%d attempts)"
+                  % (jid, j["status"], j["wave"], j["agent"], j["model"], j["total_attempts"]))
+        for c in r["checkpoints"]:
+            print("  ckpt    after %s  %s  %s"
+                  % (c["after_job"], "resolved" if c["resolved"] else "OPEN", c["decision"]))
+        return 0
+
+    die("unknown run action " + str(act))
+
+
+def run_next(r: dict) -> dict:
+    """The state machine. Returns the one thing the driver should do next."""
+    if r["status"] == "complete":
+        return {"action": "stop", "why": "phase already complete"}
+    if r["status"] == "blocked":
+        return {"action": "stop", "why": r.get("stop_reason") or "blocked"}
+
+    jobs = r["jobs"]
+    waves = sorted({j["wave"] for j in jobs.values()})
+
+    for w in waves:
+        in_wave = {k: v for k, v in jobs.items() if v["wave"] == w}
+        unfinished = {k: v for k, v in in_wave.items() if v["status"] != "passed"}
+        if any(v["status"] == "blocked" for v in in_wave.values()):
+            return {"action": "stop",
+                    "why": "job(s) blocked in wave %d: %s"
+                           % (w, ", ".join(k for k, v in in_wave.items() if v["status"] == "blocked"))}
+        if unfinished:
+            return {
+                "action": "dispatch",
+                "wave": w,
+                "why": "wave %d has %d job(s) to run" % (w, len(unfinished)),
+                "jobs": [{"id": k, "agent": v["agent"], "model": v["model"],
+                          "gate": v["gate"], "title": v["title"], "touches": v["touches"],
+                          "attempt": v["total_attempts"] + 1,
+                          "attempts_at_tier": v["attempts_at_tier"]}
+                         for k, v in sorted(unfinished.items())],
+            }
+        # Wave complete - an unresolved checkpoint inside it halts before the next.
+        open_ck = [c for c in r["checkpoints"]
+                   if not c["resolved"] and c["after_job"] in in_wave]
+        if open_ck:
+            return {"action": "checkpoint", "wave": w, "checkpoints": open_ck,
+                    "why": "one-way door after job %s: %s"
+                           % (open_ck[0]["after_job"], open_ck[0]["decision"])}
+
+    return {"action": "phase_gate", "why": "all jobs passed - run the phase gate",
+            "phase_gate": r.get("phase_gate", [])}
 
 
 # --------------------------------------------------------------------------- #
@@ -751,6 +1155,20 @@ def main(argv=None) -> int:
     p.add_argument("--project")
     p.add_argument("--timeout", type=int, default=900)
     p.set_defaults(fn=cmd_godot)
+
+    sub.add_parser("models", help="show model routing, and flag config/frontmatter drift"
+                   ).set_defaults(fn=cmd_models)
+
+    p = sub.add_parser("run", help="phase driver state machine (used by /gd:run)")
+    p.add_argument("action", choices=["init", "next", "record", "gate", "resolve",
+                                      "block", "complete", "status"])
+    p.add_argument("job", nargs="?", help="job id, for record/resolve")
+    p.add_argument("result", nargs="?", choices=["pass", "fail"], help="for record")
+    p.add_argument("--phase", help="phase dir name; default = STATE.md's current")
+    p.add_argument("--note")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--timeout", type=int, default=1800)
+    p.set_defaults(fn=cmd_run)
 
     p = sub.add_parser("check", help="GDScript gate: engine type-check + Godot-3-ism scan")
     p.add_argument("files", nargs="*", help="paths or res:// -relative; default = every .gd")
