@@ -132,9 +132,15 @@ Any job that produced screenshots: spawn **`gd-critic`** with the shots and the
 Color Bible, and **not** the code. A send-back is a `fail` — record it with the
 critic's reasoning as the note.
 
-If the same job gets sent back twice on aesthetics, stop the loop and recommend
-`/gd:gauntlet` on it. A third guess is not a plan; that job needs candidates and
-a judge.
+If a job is sent back twice **for the same defect**, stop the loop and recommend
+`/gd:gauntlet` on it. A third guess at one problem is not a plan; that job needs
+candidates and a judge.
+
+Two send-backs for *different* defects is progress, not a stall — the critic
+found one thing, it was fixed, and it found the next. Keep going. (A project
+made exactly this distinction unprompted and was right to: *"SECOND CRITIC
+SEND-BACK, but NOT the same problem twice — deliberately not escalating to
+gauntlet."*)
 
 ### 6. `action: checkpoint`
 

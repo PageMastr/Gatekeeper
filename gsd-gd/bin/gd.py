@@ -546,7 +546,11 @@ def cmd_version(a) -> int:
             print("  matches what this project recorded")
     else:
         print("  (this project has recorded no system version - `gd version --record`)")
-    return 0 if not changed else 1
+    # Informative by default. A drifted baseline is normal - every project on a
+    # machine goes stale the moment the system is improved - and a check that is
+    # red on every healthy board is a check people learn to ignore. Gate on it
+    # only when asked: `gd version --check`.
+    return 1 if (changed and a.check) else 0
 
 
 def harness_hash(d: Path) -> str:
@@ -2283,6 +2287,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("version", help="fingerprint of the installed system; --record to pin it")
     p.add_argument("--record", action="store_true",
                    help="record the current fingerprint as this project's baseline")
+    p.add_argument("--check", action="store_true",
+                   help="exit non-zero if the install has moved since this project recorded it")
     p.set_defaults(fn=cmd_version)
 
     p = sub.add_parser("config", help="effective config, and this project's overrides")

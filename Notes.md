@@ -1,7 +1,11 @@
 # Field notes — Ringfall (D:/TestGame) observed against GSD-GameDev
 
-A running log from a 10-loop observation of the system building a real game, so
-we can improve the base system tomorrow. One entry per loop, appended.
+A running log from a 10-loop observation of the system building four real games,
+so we can improve the base system tomorrow. One entry per loop, appended.
+
+**Complete: 10 loops, 18:11Z-23:00Z, 30 faults found and fixed.** Jump to
+*Closing summary* at the end for where the faults came from, the three worth
+remembering, what held up unchanged, and what is still open.
 
 **The game under test:** *"Rebuild a shattered ring station one module at a time
 while managing air, heat, and a crew that's losing faith."* Kicked off with
@@ -1349,3 +1353,153 @@ reads it".
    predicted in loop 8, all four now do — the fix is either to re-record on
    purpose at phase boundaries, or to soften it to a warning outside `--check`.
    Decide next loop rather than letting it become noise everyone ignores.
+
+---
+
+# Loop 10 — 23:00Z · final
+
+| game | jobs | passed | next action | findings | commits |
+|---|---|---|---|---|---|
+| Ringfall | 13 | **13** | `phase_gate` (green since 21:08) | 2 | 21 |
+| the-last-lamp | 7 | 5 | dispatch job 06 | 1 | 27 |
+| henhouse | 9 | 6 | **job 07 on `fable`** | **5** | 12 |
+| paper-boat | 6 | 5 | **`checkpoint`** | 3 | 8 |
+
+All four: `gd check` clean, harness `current`, roadmap valid. The loop-9 STATE
+fix is live everywhere — `last_verdict` now reads
+`01-greybox job 05 pass (opus)` instead of `none`.
+
+## The two hardest ideas in the system, working together, unprompted
+
+henhouse job 07 is the best single piece of evidence this exercise produced:
+
+```
+22:09:33  pass  opus   Verified independently: 32/32, runtime_errors:[], fps_avg 420.2
+22:17:51  fail  opus   CRITIC SEND-BACK on the CLOSED state despite 32/32 measured
+                       green. "Side by side, yes. Alone, no."
+22:44:22  pass  opus   Verified independently: 46/46, all 44 prior checks unchanged
+22:49:42  fail  opus   SECOND CRITIC SEND-BACK, but NOT the same problem twice -
+                       deliberately not escalating to gauntlet
+          -> escalated to fable
+```
+
+**A job that measured 32/32 green was sent back by the critic.** That is Law 5
+and Law 6 earning their place: a purely measured gate would have shipped it, and
+the thing that caught it was an agent that had never seen the code, looking at
+pictures. *"Side by side, yes. Alone, no."* is a sentence no assertion will ever
+produce.
+
+Then the escalation ladder climbed opus → fable after three attempts at tier,
+in the field, on its own.
+
+## 30 — a rule I wrote loosely, and a project read correctly
+
+That log line — *"NOT the same problem twice — deliberately not escalating to
+gauntlet"* — is the operator applying `/gd:run`'s rule more carefully than I
+wrote it. My text said *"if the same job gets sent back twice on aesthetics"*,
+which reads as **two send-backs, any cause**. It meant *two send-backs for the
+same defect*, and the project inferred the right rule from intent.
+
+Two send-backs for *different* defects is progress: the critic found one thing,
+it was fixed, it found the next. Escalating there would replace working
+iteration with a gauntlet. Rule now says what it means, and cites the project.
+
+## 24 resolved — `gd version` was about to become noise
+
+Predicted in loop 8, confirmed in loop 9: every project's baseline goes stale
+the moment the system improves, so `gd version` was exiting 1 on four healthy
+projects. **A check that is red on every healthy board is a check people learn
+to ignore** — and that would have cost more than the drift ever did.
+
+Now informative by default, gating only on `gd version --check`. Verified: a
+project with a stale baseline prints `CHANGED since this project recorded
+df400368fd11: cli`, exits **0** normally and **1** under `--check`.
+
+---
+
+# Closing summary — 10 loops, four games, 30 faults
+
+## What the exercise was
+
+Four independent games (a ring station, a lamp in a nebula, a henhouse, a paper
+boat) built by the system while I watched hourly and fixed what broke. The
+system was rebuilt underneath them throughout, which was itself a source of
+faults.
+
+## Where the faults came from
+
+| source | count | notable |
+|---|---|---|
+| Observation (loops 1–6) | 16 | budget/config leaks, no `running` state, Law 6 hole |
+| **Projects filing `SYSTEM_FINDINGS`** | **7** | 2 false-passes, 1 false-fail, all with engine citations |
+| Cross-project leakage audit | 5 | machine-global config, shared harness |
+| My own regressions | 2 | embedded-script unescape; drift check accusing stale projects |
+
+**The projects out-performed the observer.** Once `SYSTEM_FINDINGS.md` existed,
+seven faults arrived in three hours — including both `false-pass` bugs, which
+are the only category that invalidates work already accepted, and which
+inspecting the system against itself had entirely missed:
+
+- a playtest race producing a **green PASS under the wrong plan's name**
+- `still` on a scalar probe being **a check that could not fail**
+
+Both were found by a project under load, with line numbers, and neither would
+have been found any other way.
+
+## The three faults worth remembering
+
+1. **The false green.** `gd playtest` wrote every plan to one shared inbox and
+   stamped `verdict["plan"]` from its own argument, so two concurrent runs
+   swapped plans silently. A verdict must now prove its identity or be refused.
+2. **The gate that reshaped a project.** `gd check` false-failed on autoloads
+   because `--check-only` returns before they register — and Ringfall had
+   already bent its architecture into a static-accessor pattern to satisfy it. A
+   false failure that gets designed around is worse than one that annoys.
+3. **The shared mutable install.** One game's lighting presets propagated into
+   three others, two of which had no palette swatch for them; a later reinstall
+   then deleted them from the game that wrote them. I mis-attributed authorship
+   three times under deliberate forensics before the palette keys settled it —
+   the leak was bad, but *unknowable authorship* was worse.
+
+## The pattern under most of them
+
+From loop 9, and it held to the end: **the system knew something and failed to
+write it where the next reader would look.** Scalar history discarded. No
+toolchain fingerprint. A green gate that never reached STATE. Not logic errors —
+plumbing between something that measured and the artefact someone reads later.
+
+The review question is not *"is this correct"* but *"where does this end up, and
+who reads it"*.
+
+## What held up without changes
+
+Worth recording, because it says what not to touch:
+
+- **The roadmap contract.** Three kickoffs, three different games, `gd roadmap`
+  green first try each time — 17 / 14 / 16 stages, adapting rather than
+  converging on the template.
+- **Wave disjointness.** Seven parallel jobs in Ringfall's wave 2, each owning
+  its own `scripts/<subsystem>/`, with `scenes/main.tscn` touched by exactly one
+  job in a later wave. The advice was followed to the letter.
+- **The Color Bible.** Every game's palette ended up better than the template it
+  came from, with a reasoned change log — one of them recognised the
+  one-warm-family rule, hit a conflict with it, and *solved* it rather than
+  ignoring it.
+- **Law 6.** Held under pressure without supervision: *"This is a bug in the
+  tool, not in the project. Do not work around it by editing `gd.py` from inside
+  a job."*
+
+## Open, for tomorrow
+
+1. **`--smoke` is still unexercised** — every current kickoff predates it. The
+   next fresh project is the test.
+2. **Ringfall is one human playtest from the first `/gd:ship`** — which would
+   exercise the ship beat, the `SYSTEM_FINDINGS` sweep and the roadmap advancing
+   to stage 02. None of those have run yet, and they are the least-tested part
+   of the system.
+3. **The `E.n` numbering collision** Ringfall flagged is patched in the template
+   but its own file still carries the workaround.
+4. **Nothing has reached stage 02**, so every stage past the greybox — kit,
+   props, hero asset, character, textures, lighting, perf — is still
+   theoretical. The system is well tested at the start of a game and untested in
+   the middle of one.
