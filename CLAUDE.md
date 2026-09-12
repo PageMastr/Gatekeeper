@@ -18,7 +18,9 @@ machine share one Color Bible. `gd doctor` prints both.
 - `.planning/` — the contracts for the game currently being built:
   `CONTEXT.md` (settled decisions), `COLOR_BIBLE.md` (the palette),
   `CORE_LOOP.md` (what the player does), **`ROADMAP.md`** (the whole game as
-  stages that stack), `BUDGET.md`, `CREDITS.md`, `STATE.md`.
+  stages that stack), `BUDGET.md`, `CREDITS.md`, `STATE.md`,
+  **`SYSTEM_FINDINGS.md`** (what the *system* got wrong while building this),
+  and `config.json` (this project's config overrides).
 - `game/<slug>/` — the Godot project itself.
 
 ## Toolchain
@@ -169,6 +171,13 @@ gd config --init     # add one to an existing project
 Budget, playtest defaults, model routing and the Blender snap grid are all
 per-project. `BUDGET.md` justifies the numbers in prose; `.planning/config.json`
 holds them. One source of truth each.
+
+**File what the system gets wrong.** When the toolchain rejects correct work,
+produces a verdict you cannot trust, or behaves in a way the references do not
+cover, append a row to `.planning/SYSTEM_FINDINGS.md` and carry on. A project
+under real load is the only thing that finds these — one did, and caught a gate
+that was certifying the wrong plan's checks as green. Filing is not permission
+to fix (Law 6b).
 
 **Never edit the installed system.** `~/.claude/gsd-gd/` is shared by every
 game on this machine and is not under version control. Editing the harness,

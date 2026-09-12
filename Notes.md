@@ -900,3 +900,117 @@ that prompted it.
    one wave. That should be a template, not an emergent behaviour — something
    like `.planning/SYSTEM_FINDINGS.md` that `/gd:ship` sweeps into the
    references via `gd-scribe`.
+
+---
+
+# Loop 6 — 20:24Z · the driver's own fixes show up in the field
+
+| game | jobs | passed | running | blocked | check | harness |
+|---|---|---|---|---|---|---|
+| Ringfall | 13 | **10** | 0 | 0 | 0 failing | current |
+| the-last-lamp | 7 | 2 | 0 | 0 | 0 failing | current |
+| henhouse | 9 | 3 | 0 | 0 | 0 failing | current |
+| paper-boat | 6 | 0 | **1** | 0 | 0 failing | current |
+
+Ringfall is 10/13 through its greybox with nothing failing. And **paper-boat
+shows a job in `running`** — the fault-9 fix in live use, doing exactly what it
+was for: the board now distinguishes "being worked on" from "nobody has touched
+it".
+
+## 25. `gd harness --check` could not tell *stale* from *tampered*
+
+paper-boat reported two drifted files with:
+
+> `[DRIFT] gd_playtest.gd differs from canonical - a local edit to the
+> instrument that grades this project`
+
+**It had edited nothing.** Its harness was hash `398b5dd8`; canonical had moved
+to `046bd23c` because I had shipped the E.11 and shadow-budget fixes since. The
+project was simply *behind*.
+
+So the check I built to catch Law 6b violations was accusing a project of
+tampering for the crime of not having been reinstalled. Wrong, and alarming —
+and it would train people to ignore the one message that matters.
+
+**Fixed:** `install_harness()` now stamps `addons/gd_harness/.installed_hash`
+with the canonical hash at install time, and drift is classified:
+
+| status | meaning | gate |
+|---|---|---|
+| `current` | matches canonical | pass |
+| `stale` | untouched since install, canonical moved on — `gd harness` to update | **pass** |
+| `edited` | differs from what was installed here — the Law 6b case | **fail** |
+| `unknown` | installed before stamping existed | fail, conservatively |
+
+All four games now read `current`. paper-boat's prior files were preserved as
+`.local` on the way through, per the loop-4 fix.
+
+## 26. My own measurement bug, again
+
+The sweep reported `exit=2` for all four harness checks. Not the tool — I had
+set `GD="python gsd-gd/bin/gd.py"`, a **relative** path, and then `cd`'d into
+each game directory where it does not exist.
+
+Third measurement error in six loops, all mine, all from reading a live system
+carelessly. The tooling around the observation continues to be less reliable
+than the system being observed. Absolute paths only, from here.
+
+## Carried-forward item patched: system findings are now first-class
+
+This was the top open item from loop 5, and the reason was that a project
+invented the artefact spontaneously and **out-performed this observation loop**
+— Ringfall's `E.n` table caught three real faults in one wave, two severe, that
+testing the system against itself would never have found.
+
+Shipped:
+
+- **`.planning/SYSTEM_FINDINGS.md`**, created by `gd init` alongside the other
+  contracts. Three tables: findings, engine knowledge, and **workarounds
+  currently in force** — the last because a workaround outlives the fault unless
+  something is tracking it.
+- **A severity vocabulary**, with `false-pass` at the top: *a gate certified
+  something untrue*. That is the only category that invalidates work already
+  accepted, and it earns its own emergency handling.
+- **`gd-mechanics`, `gd-modeler` and `gd-rigger` are told to file**, and told
+  plainly that filing is **not** permission to fix (Law 6b). Ringfall got this
+  right unprompted — *"This is a bug in the tool, not in the project. Do not
+  work around it by editing `gd.py` from inside a job."* — and that instinct is
+  now written down instead of hoped for.
+- **`/gd:ship` sweeps them** as its own numbered step, before extracting
+  learnings: any `false-pass` is an emergency and its gates get re-run;
+  engine knowledge folds into the references; workarounds are checked against
+  their finding's status and removed when the fault is fixed.
+- **`gd-scribe` reads findings first**, keeps citations verbatim
+  (`main.cpp:4372` is the finding; "autoloads are tricky" is not), and may not
+  mark anything `fixed` — the project reports, the system decides.
+
+The template says what makes a finding useful, using the real examples: cite the
+mechanism, say whether it was a false pass or a false failure, and record the
+workaround.
+
+## Global install refreshed
+
+`install.py` re-run: 28 files rewritten to absolute paths, 1071 classes indexed,
+`doctor: all checks pass`. A fresh `gd init` now produces:
+
+```
+BUDGET.md  COLOR_BIBLE.md  CONTEXT.md  CORE_LOOP.md  CREDITS.md
+ROADMAP.md  STATE.md  SYSTEM_FINDINGS.md  config.json  phases/
+```
+
+Regression from clean: doctor, config, models, check, harness --check, playtest,
+asset all exit 0; roadmap correctly exits 1 on the unfilled template. All four
+live games: harness `current`, zero failing files.
+
+## Carried forward
+
+1. **22** — `gd.py`, `gddoc.py`, templates and references are still shared
+   unversioned code. `harness_hash` covers the grader and `.installed_hash`
+   now covers staleness, but nothing fingerprints the rest. A `gd version`
+   stamped into each verdict would close it. This is the last of the
+   shared-state problem.
+2. **24** — `--smoke` still unexercised: every current game's kickoff predates
+   it.
+3. Backfill `SYSTEM_FINDINGS.md` into the four running games, and move
+   Ringfall's `E.n` table out of its `PLAN.md` into it, so the sweep at ship
+   time finds it where it expects to.

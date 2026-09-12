@@ -263,11 +263,15 @@ def cmd_doctor(a) -> int:
                    "detail": str(proj) if proj else "none yet - run `gd init <name>`"})
     if proj:
         dr = harness_drift(proj)
-        mod = dr["modified"] + dr["missing"]
-        check("harness", not mod,
-              ("canonical=%s project=%s" % (dr["canonical"], dr["project"]))
-              if not mod else
-              ("local edits to the grader: %s - run `gd harness --check`" % ", ".join(mod)))
+        if dr["status"] == "current":
+            check("harness", True, "canonical=%s" % dr["canonical"])
+        elif dr["status"] == "stale":
+            check("harness", True,
+                  "stale (on an older canonical; `gd harness` to update)")
+        else:
+            check("harness", False,
+                  "local edits to the grader: %s - run `gd harness --check`"
+                  % ", ".join(dr["modified"] + dr["missing"]))
 
     soft = ("planning_dir", "godot_project")
     ok = all(x["ok"] for x in checks if x["check"] not in soft)
@@ -319,6 +323,7 @@ def cmd_init(a) -> int:
                     ("CORE_LOOP.md", PLANNING / "CORE_LOOP.md"),
                     ("BUDGET.md", PLANNING / "BUDGET.md"),
                     ("ROADMAP.md", PLANNING / "ROADMAP.md"),
+                    ("SYSTEM_FINDINGS.md", PLANNING / "SYSTEM_FINDINGS.md"),
                     ("CREDITS.md", PLANNING / "CREDITS.md")):
         if dest.exists() and not a.force:
             continue
@@ -406,11 +411,22 @@ def harness_drift(proj: Path) -> dict:
     """
     src = SYS_DIR / "harness" / "godot"
     dst = proj / "addons" / "gd_harness"
-    out = {"canonical": harness_hash(src), "project": None,
-           "modified": [], "missing": [], "extra": []}
+    out = {"canonical": harness_hash(src), "project": None, "installed": None,
+           "status": "absent", "modified": [], "missing": [], "extra": []}
     if not dst.is_dir():
         return out
     out["project"] = harness_hash(dst)
+    stamp = dst / ".installed_hash"
+    out["installed"] = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else None
+    if out["project"] == out["canonical"]:
+        out["status"] = "current"
+    elif out["installed"] and out["project"] == out["installed"]:
+        # Untouched since install; canonical has simply moved ahead.
+        out["status"] = "stale"
+    elif out["installed"] is None:
+        out["status"] = "unknown"        # installed before hashes were stamped
+    else:
+        out["status"] = "edited"         # the Law 6b case
     for f in sorted(src.glob("*")):
         if not f.is_file():
             continue
@@ -422,7 +438,8 @@ def harness_drift(proj: Path) -> dict:
     names = {f.name for f in src.glob("*") if f.is_file()}
     out["extra"] = sorted(p.name for p in dst.glob("*")
                           if p.is_file() and p.name not in names
-                          and not p.name.endswith(".uid"))
+                          and not p.name.endswith(".uid")
+                          and p.name != ".installed_hash")
     return out
 
 
@@ -449,26 +466,42 @@ def install_harness(proj: Path, force: bool = False):
                 preserved.append(f.name)
         shutil.copy2(f, target)
         copied.append(f.name)
-    return {"copied": copied, "overwrote_local_edits": preserved,
-            "hash": harness_hash(src)}
+    h = harness_hash(src)
+    # Stamp what was installed. Without it, "the project edited the grader" and
+    # "the canonical moved on and this project has not caught up" look
+    # identical - and only one of them is a Law 6b concern.
+    (dst / ".installed_hash").write_text(h, encoding="utf-8")
+    return {"copied": copied, "overwrote_local_edits": preserved, "hash": h}
 
 
 def cmd_harness(a) -> int:
     proj = Path(a.project).resolve() if a.project else find_project()
     drift = harness_drift(proj)
     if a.check:
-        ok = not (drift["modified"] or drift["missing"])
+        # Only a genuine local edit is a failure. A project sitting on an older
+        # canonical is stale, not tampered - and saying "a local edit to the
+        # instrument that grades this project" about it is both wrong and
+        # alarming.
+        ok = drift["status"] in ("current", "stale") and not drift["missing"]
         emit("harness", {"ok": ok, "action": "check", "project": str(proj), **drift})
         print("  canonical %s" % drift["canonical"])
         print("  project   %s" % (drift["project"] or "(not installed)"))
-        for f in drift["modified"]:
-            print("  [DRIFT] %s differs from canonical - a local edit to the "
-                  "instrument that grades this project" % f)
+        print("  status    " + drift["status"])
+        if drift["status"] == "stale":
+            print("  This project is on an older canonical harness. Nothing was "
+                  "edited here;")
+            print("  run `gd harness` to bring it up to date.")
+            for f in drift["modified"]:
+                print("    behind: " + f)
+        elif drift["status"] in ("edited", "unknown"):
+            for f in drift["modified"]:
+                print("  [DRIFT] %s differs from canonical - a local edit to the "
+                      "instrument that grades this project" % f)
         for f in drift["missing"]:
             print("  [MISSING] " + f)
         if ok and drift["project"]:
             print("  harness matches canonical")
-        if drift["modified"]:
+        if drift["status"] in ("edited", "unknown") and drift["modified"]:
             print("")
             print("  If the edit is a real improvement, upstream it to")
             print("  %s and reinstall - do not leave it local." % (SYS_DIR / "harness" / "godot"))

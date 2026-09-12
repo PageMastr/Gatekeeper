@@ -23,10 +23,24 @@ phase — and file each thing where it belongs:
 | an engine gotcha, a crash with a non-obvious cause, a flag that behaves oddly | `gsd-gd/references/toolchain.md` |
 | a pattern that worked, or a cost model | `godot-patterns.md` / `blender-patterns.md` |
 | a Godot 3-vs-4 trap that bit someone | `gsd-gd/references/gdscript-4x.md`, and consider a rule in `gddoc.py`'s scan table |
+| an entry in `.planning/SYSTEM_FINDINGS.md` | see below — these are the most valuable rows in the project |
 | a decision that was made | `.planning/CONTEXT.md`, **with its reason** |
 | which model produced the accepted work, or where one clearly beat another | `gsd-gd/references/model-routing.md` |
 | jobs that were really two jobs, waves that were not actually parallel, gates that passed for the wrong reason | the phase `PLAN.md` retro section |
 | measured perf numbers | `.planning/BUDGET.md` snapshot table |
+
+## System findings get read first
+
+`.planning/SYSTEM_FINDINGS.md` is where the project recorded what the *system*
+got wrong. Those entries are worth more than anything you will write yourself,
+because they came from real load rather than from inspection.
+
+- **Engine knowledge** with a citation goes straight into the references, with
+  the citation kept. `main.cpp:4372` is the finding; "autoloads are tricky" is
+  not.
+- **A `false-pass` entry** goes at the top of your report, flagged. A gate that
+  certified something untrue invalidates every verdict it produced.
+- **Do not mark a finding `fixed`.** The project reports; the system decides.
 
 ## How to write it
 

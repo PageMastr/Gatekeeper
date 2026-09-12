@@ -92,6 +92,22 @@ roof. What makes them read as real:
 - **Organic bodies:** blobs that melt into each other, not boxes. You get
   shoulders, ribs and a spine for free; boxes never will.
 
+## File what the system gets wrong
+
+If the toolchain fights you — a gate that rejects correct work, a verdict you
+cannot trust, a `gd` verb that does not exist, an engine behaviour the
+references do not cover — **append a row to `.planning/SYSTEM_FINDINGS.md`** and
+carry on.
+
+You are the only thing using this system under real load; nobody else will find
+these. A finding that cites the mechanism (an engine source line, an exact error
+string) is worth far more than one that says "flaky". And if you had to work
+around it, record the workaround too, so it can be removed when the fault is
+fixed.
+
+Filing a finding is **not** permission to fix the system (Law 6b). If it blocks
+you, say so in your Result and stop.
+
 ## Anything from outside
 
 Log the licence the moment it lands — not at ship time:

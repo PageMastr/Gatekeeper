@@ -83,7 +83,31 @@ this is on you: if something leaves the plan, it leaves visibly.
 
 Add a row to the Revisions table saying what changed and why.
 
-## 5. Extract the learnings
+## 5. Sweep the system findings
+
+```bash
+cat .planning/SYSTEM_FINDINGS.md
+```
+
+This is the highest-value artefact a phase produces, because it is the only
+evidence of how the *system* behaves under real load. Go through it:
+
+- **Any `false-pass` entry is an emergency.** A gate certified something untrue,
+  so every verdict that gate produced this phase is suspect. Say so explicitly
+  in your report, and re-run the affected gates before shipping.
+- **Engine knowledge** → fold into `references/gdscript-4x.md`,
+  `godot-patterns.md` or `blender-patterns.md` via `gd-scribe`, so the next
+  project starts with it instead of rediscovering it.
+- **Workarounds in force** → check each against the findings' status. A fixed
+  finding whose workaround is still in the code is debt to remove now, while
+  you remember why it was there.
+- Mark each finding `reported` once it is written up here. Do not mark anything
+  `fixed` — that is the system's call, not the project's.
+
+Findings do not get closed by shipping. They travel with the project until the
+system changes.
+
+## 6. Extract the learnings
 
 The part everyone skips, and the part that compounds.
 
@@ -97,7 +121,7 @@ The part everyone skips, and the part that compounds.
   not actually parallel, gates that passed for the wrong reason. Write it in the
   phase `PLAN.md` retro section. The next `/gd:plan` reads it.
 
-## 6. Archive and commit
+## 7. Archive and commit
 
 ```bash
 python gsd-gd/bin/gd.py state beat frame          # next milestone starts at frame
@@ -108,7 +132,7 @@ git tag "phase-NN-<slug>"
 
 `.gd_out/` is generated; it does not get committed.
 
-## 7. Optional: a build
+## 8. Optional: a build
 
 Only if the user asks. This is a Godot **source build**, so the export templates
 are the ones in `D:/Godot/GodotEngine/bin/` (Windows x86_64 and Web wasm32) —
@@ -122,6 +146,8 @@ Report, plainly:
 - licences: complete or what is missing
 - budget: this phase vs last
 - learnings written, and where
+- system findings: how many, how many `false-pass`, and what you folded into
+  the references
 - the roadmap: stages done / total, and any revision you made
 - what the next stage is, straight off the roadmap, and what it de-risks
 
