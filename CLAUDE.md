@@ -51,6 +51,7 @@ python gsd-gd/bin/gd.py <verb>
 | `roadmap [status\|done <id>]` | **validate the stage roadmap** — coverage, stacking, placeholders |
 | `now` | current UTC timestamp — never type one from memory |
 | `config [--init]` | effective config + this project's overrides |
+| `version [--record]` | fingerprint of the installed system, by component |
 | `harness [--check]` | (re)install the harness, or detect drift in the grader |
 | `models` | show model routing per agent + flag config/frontmatter drift |
 | `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
@@ -178,6 +179,12 @@ cover, append a row to `.planning/SYSTEM_FINDINGS.md` and carry on. A project
 under real load is the only thing that finds these — one did, and caught a gate
 that was certifying the wrong plan's checks as green. Filing is not permission
 to fix (Law 6b).
+
+**A verdict names its toolchain.** `gd version` fingerprints the install by
+component (cli, harness, lib, templates, references, config). Every verdict
+records it, `gd init` pins it as the project's baseline, and `gd run status`
+warns when the system has changed mid-phase — because jobs graded before a
+change were graded by a different toolchain.
 
 **Never edit the installed system.** `~/.claude/gsd-gd/` is shared by every
 game on this machine and is not under version control. Editing the harness,

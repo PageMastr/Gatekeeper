@@ -1126,3 +1126,115 @@ should be commented out rather than look like data.
 4. Ringfall's `E.n` numbering collides with its own `PLAN.md` engine-contract
    namespace (it started at E.12 to avoid it, and said so). Worth a note in the
    template that the findings file owns its own numbering.
+
+---
+
+# Loop 8 — 21:55Z · #22 closed, and a regression I shipped
+
+| game | jobs | passed | running | check | harness | findings |
+|---|---|---|---|---|---|---|
+| Ringfall | 13 | **13** | 0 | 0 fail | current | 1 |
+| the-last-lamp | 7 | 4 | 0 | 0 fail | current | 1 |
+| henhouse | 9 | 4 | 0 | 0 fail | current | 1 |
+| paper-boat | 6 | 3 | **2** | 0 fail | current | **2** |
+
+**Ringfall is 13/13** — the first phase to finish its job list. `gd run next`
+returns `phase_gate` with five gates queued. paper-boat has two jobs in flight
+concurrently, which is the `run start` fix carrying real load.
+
+## 22 closed — a verdict now names its toolchain
+
+The last of the shared-state problem. `harness_hash` covered the grader and
+`.installed_hash` covered staleness, but `gd.py`, the templates and the
+references were unversioned — so a phase had no way to notice the toolchain
+changing underneath it. Not hypothetical: I hot-patched this install while three
+builds were mid-flight, and the only trace was an incidental recopy inside an
+unrelated commit.
+
+`gd version` fingerprints the install by component:
+
+```
+  system    50a6db6b25f5   (declared 1.0.0)
+    cli         6d6b69ad6ba1  2 file(s)
+    config      3a6790d85f7d  1 file(s)
+    harness     5941e4fe01ed  5 file(s)
+    lib         a30f64d17c96  1 file(s)
+    references  65260be319bb  8 file(s)
+    templates   171155949ed1  16 file(s)
+```
+
+- `gd init` records it as the project's baseline (`.planning/.system`).
+- **Every verdict carries `system: {version, hash}`** alongside `harness_hash`
+  and `run_id`.
+- `gd run init` stamps it into `RUN.json`, and **`gd run status` warns when the
+  system has moved mid-phase**: *"SYSTEM changed mid-phase: armed on
+  50a6db6b25f5, now 7959c17992e2 — jobs graded before the change used a
+  different toolchain."*
+- Component-level, so the warning says *what* moved. Provoked by touching one
+  reference file: `! references 1270df230fc2`.
+
+That is the thing I most wanted after loop 4, and it would have caught my own
+mistake at the time it happened rather than an hour later.
+
+## E.2 (paper-boat) — my loop-7 fix shipped a false-fail, caught within the hour
+
+> **The new embedded-script extractor added for E.1 double-unescapes, and now
+> false-fails a correct scene.** […] `res://scenes/lab_soak.tscn::GDScript_driver`
+> → `SCRIPT ERROR: Parse Error: Expected new line after "\"`. The scene is job
+> 03's, was green before the tool changed, and is not broken.
+
+A `false-fail` introduced by a fix for a `friction` finding. Fixing one fault and
+shipping a worse one is the risk of patching a live system, and it took a
+project under load 50 minutes to find it.
+
+**Their mechanism was right; my label was not.** They called it
+double-unescaping. It was under-unescaping: a `.tscn` stores an embedded script
+**on one line**, where `\n` is a real newline and `\\n` is a literal backslash-n
+that must survive inside a GDScript string literal. My
+`replace('\\"','"').replace('\\\\','\\')` never handled `\n` at all, so the
+extracted source was one enormous line and GDScript hit a stray backslash —
+exactly the error they reported.
+
+Chained `str.replace` cannot do this correctly in any order: it either misses a
+case or rewrites the output of an earlier pass. Replaced with a **single
+left-to-right scan** where each backslash consumes exactly one following
+character and is never re-examined, handling `\n \t \r \" \\ \uXXXX` and
+leaving unknown escapes verbatim rather than guessing.
+
+Verified against **the actual file from paper-boat's git history** (`c4438bc`):
+extraction now yields 53 lines instead of one, the literal
+`"...m/s\nstate=%s\n..."` keeps its escapes intact, and `gd check` reports
+**zero** `Expected new line after "\"` errors. The only error left is
+`Could not find type "Run"` — which is exactly what they predicted would remain,
+being their project's own `class_name` absent from a throwaway test project.
+
+Their workaround (moving the driver out of the `.tscn` to an `ExtResource`) can
+now be reverted — though it is arguably better practice anyway, and they flagged
+it honestly as a *dodge* rather than a fix.
+
+## What this loop says about the method
+
+Three of the last four real faults came from projects under load, not from
+testing the system against itself:
+
+| found by | fault | severity |
+|---|---|---|
+| Ringfall | playtest race → green PASS under the wrong plan | false-pass |
+| Ringfall | `still` on a scalar probe cannot fail | false-pass (latent) |
+| paper-boat | `gd check` blind to embedded scripts | friction |
+| paper-boat | my fix for the above → false-fail | **false-fail** |
+
+The last row is the important one: **the projects now catch the system's
+regressions, including regressions introduced to fix their own findings.** That
+loop closed on its own, in under an hour, without me asking.
+
+## Carried forward
+
+1. **24** — `--smoke` still unexercised; every current kickoff predates it.
+2. Ringfall is at `phase_gate` with five gates queued. Next loop should see
+   whether a completed greybox actually passes them — the first end-to-end test
+   of the whole beat.
+3. `gd version` exits 1 whenever the install has moved since a project recorded
+   its baseline. That is correct, but it means `doctor`-style green boards will
+   show a red until each project re-records. Watch whether that reads as signal
+   or as noise; if noise, it should warn rather than fail.

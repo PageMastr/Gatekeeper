@@ -350,12 +350,54 @@ def cmd_init(a) -> int:
     if not project_config_path().exists() or a.force:
         cmd_config(argparse.Namespace(init=True, force=True))
 
+    cmd_version(argparse.Namespace(record=True))
     installed = install_harness(proj)["copied"]
     cmd_palette(argparse.Namespace(project=str(proj)))
     emit("init", {"ok": True, "name": name, "slug": slug, "project": str(proj),
                   "planning": str(PLANNING), "harness": installed,
                   "next": "/gd:frame - lock the Color Bible and Core Loop before any code"})
     return 0
+
+
+_TSCN_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\",
+                 "'": "'", "0": "\0", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}
+
+
+def unescape_tscn_string(raw: str) -> str:
+    """Decode a Godot .tscn quoted string, in ONE left-to-right pass.
+
+    A `.tscn` stores an embedded script on a single line, so:
+        \\n   -> a real newline in the source
+        \\\\n  -> the two characters \\ and n, i.e. an escape inside a GDScript
+                 string literal, which must survive intact
+        \\"   -> a quote
+
+    Chained `str.replace()` cannot do this: it either misses `\\n` entirely
+    (leaving the whole script on one line, so GDScript hits a stray backslash
+    and reports `Expected new line after "\\"`) or it rewrites the output of a
+    previous pass. A single scan is the only correct way - each backslash
+    consumes exactly one following character and is never re-examined.
+    """
+    out = []
+    i, n = 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "\\" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "u" and i + 5 < n:
+                try:
+                    out.append(chr(int(raw[i + 2:i + 6], 16)))
+                    i += 6
+                    continue
+                except ValueError:
+                    pass
+            # An unknown escape is left exactly as written rather than guessed at.
+            out.append(_TSCN_ESCAPES.get(nxt, "\\" + nxt))
+            i += 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 
 
 def embedded_scripts(path: Path):
@@ -378,10 +420,8 @@ def embedded_scripts(path: Path):
             r'script/source\s*=\s*"(.*?)"\s*(?=\n\[|\Z)',
             text, re.S):
         sid, raw = m.group(1), m.group(2)
-        # .tscn escapes " and \ inside the quoted source block.
-        src = raw.replace('\\"', '"').replace("\\\\", "\\")
-        if src.strip():
-            yield sid, src
+        if raw.strip():
+            yield sid, unescape_tscn_string(raw)
 
 
 def ensure_class_cache(proj: Path) -> dict:
@@ -409,6 +449,104 @@ def ensure_class_cache(proj: Path) -> dict:
         run([godot_bin(), "--headless", "--path", str(proj), "--import"], timeout=1200)
         return {"reimported": True, "was_stale": stale, "was_missing": not cache.exists()}
     return {"reimported": False, "was_stale": False, "was_missing": False}
+
+
+SYSTEM_PARTS = {
+    "cli": ["bin/gd.py", "bin/gddoc.py"],
+    "harness": ["harness/godot", "harness/blender"],
+    "lib": ["lib/gdblend"],
+    "templates": ["templates"],
+    "references": ["references"],
+    "config": ["config.json"],
+}
+
+
+def system_fingerprint() -> dict:
+    """Content hash of the installed system, by component.
+
+    `harness_hash` covers the grader and `.installed_hash` covers staleness, but
+    nothing fingerprinted `gd.py`, the templates or the references - so a phase
+    had no way to notice the toolchain changing underneath it. That is not
+    hypothetical: three builds were mid-flight when this install was hot-patched,
+    and the only trace was an incidental recopy inside an unrelated commit.
+
+    A verdict is a claim about a moment. It should be able to name the toolchain
+    that produced it.
+    """
+    import hashlib
+
+    def digest(paths):
+        h = hashlib.sha256()
+        files = []
+        for rel in paths:
+            p = SYS_DIR / rel
+            if p.is_dir():
+                files += [f for f in sorted(p.rglob("*"))
+                          if f.is_file() and f.suffix in (".py", ".gd", ".tscn",
+                                                          ".md", ".json", ".tpl")
+                          and "__pycache__" not in f.parts]
+            elif p.is_file():
+                files.append(p)
+        for f in files:
+            h.update(str(f.relative_to(SYS_DIR)).replace("\\", "/").encode())
+            h.update(f.read_bytes())
+        return h.hexdigest()[:12], len(files)
+
+    parts, total = {}, hashlib.sha256()
+    for name, paths in SYSTEM_PARTS.items():
+        d, n = digest(paths)
+        parts[name] = {"hash": d, "files": n}
+        total.update((name + d).encode())
+    declared = "unknown"
+    try:
+        declared = json.loads(CONFIG.read_text(encoding="utf-8")).get("version", "unknown")
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {"version": declared, "hash": total.hexdigest()[:12],
+            "parts": parts, "root": str(SYS_DIR)}
+
+
+def cmd_version(a) -> int:
+    fp = system_fingerprint()
+    recorded = None
+    stamp = PLANNING / ".system"
+    if stamp.exists():
+        try:
+            recorded = json.loads(stamp.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    changed = []
+    if recorded:
+        for name, cur in fp["parts"].items():
+            was = (recorded.get("parts") or {}).get(name, {}).get("hash")
+            if was and was != cur["hash"]:
+                changed.append(name)
+    if a.record:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(json.dumps(fp, indent=2), encoding="utf-8")
+        emit("version", {"ok": True, "action": "record", **fp})
+        print("  recorded %s (%s) to %s" % (fp["hash"], fp["version"], stamp))
+        return 0
+    emit("version", {"ok": not changed, **fp,
+                     "recorded": (recorded or {}).get("hash"),
+                     "changed_since_recorded": changed})
+    print("  system    %s   (declared %s)" % (fp["hash"], fp["version"]))
+    for name in sorted(fp["parts"]):
+        p = fp["parts"][name]
+        mark = " !" if name in changed else "  "
+        print("  %s%-11s %s  %d file(s)" % (mark, name, p["hash"], p["files"]))
+    if recorded:
+        if changed:
+            print("")
+            print("  CHANGED since this project recorded %s: %s"
+                  % (recorded.get("hash"), ", ".join(changed)))
+            print("  Verdicts taken before the change were produced by a different")
+            print("  toolchain. `gd version --record` once you have accounted for it.")
+        else:
+            print("  matches what this project recorded")
+    else:
+        print("  (this project has recorded no system version - `gd version --record`)")
+    return 0 if not changed else 1
 
 
 def harness_hash(d: Path) -> str:
@@ -1136,8 +1274,10 @@ def cmd_run(a) -> int:
             return 1
         if run_file(d).exists() and not a.force:
             die("RUN.json already exists (use --force to restart the phase)")
+        _sf = system_fingerprint()
         r = {"phase": d.name, "created": now(), "updated": now(),
              "status": "running", "stop_reason": None,
+             "system": {"version": _sf["version"], "hash": _sf["hash"]},
              "model_ladder": model_ladder(), "attempts_per_tier": attempts_per_tier(),
              "waves_completed": [], "gate_runs": [], **parsed}
         save_run(d, r)
@@ -1285,16 +1425,26 @@ def cmd_run(a) -> int:
         emit("run", {"ok": True, "action": "complete", "phase": d.name})
         return 0
 
+    cur_sys = system_fingerprint()["hash"]
+    armed_sys = (r.get("system") or {}).get("hash")
+    sys_changed = bool(armed_sys) and armed_sys != cur_sys
+
     if act == "status":
         by_status = {}
         for jid, j in sorted(r["jobs"].items()):
             by_status.setdefault(j["status"], []).append(jid)
         emit("run", {"ok": True, "action": "status", "phase": d.name,
                      "run_status": r["status"], "stop_reason": r.get("stop_reason"),
+                     "system_armed": armed_sys, "system_now": cur_sys,
+                     "system_changed_mid_phase": sys_changed,
                      "by_status": by_status,
                      "phase_gate": r.get("phase_gate"),
                      "last_gate": (r.get("gate_runs") or [None])[-1]})
         print("  phase   %s   [%s]" % (d.name, r["status"]))
+        if sys_changed:
+            print("  SYSTEM  changed mid-phase: armed on %s, now %s" % (armed_sys, cur_sys))
+            print("          Jobs graded before the change used a different toolchain."
+                  " `gd version` for what moved.")
         if r.get("stop_reason"):
             print("  stop    " + r["stop_reason"])
         for jid, j in sorted(r["jobs"].items()):
@@ -1847,6 +1997,8 @@ def cmd_playtest(a) -> int:
     # Which grader graded this. A verdict is only as trustworthy as the harness
     # that produced it, and that harness turned out to be mutable.
     verdict["harness_hash"] = harness_info["hash"]
+    _fp = system_fingerprint()
+    verdict["system"] = {"version": _fp["version"], "hash": _fp["hash"]}
     if cache_state["reimported"]:
         verdict["class_cache_reimported"] = cache_state
     if drift_before["modified"]:
@@ -2114,6 +2266,11 @@ def main(argv=None) -> int:
                    choices=["validate", "status", "done"])
     p.add_argument("stage", nargs="?", help="stage id, for `done`")
     p.set_defaults(fn=cmd_roadmap)
+
+    p = sub.add_parser("version", help="fingerprint of the installed system; --record to pin it")
+    p.add_argument("--record", action="store_true",
+                   help="record the current fingerprint as this project's baseline")
+    p.set_defaults(fn=cmd_version)
 
     p = sub.add_parser("config", help="effective config, and this project's overrides")
     p.add_argument("--init", action="store_true", help="create .planning/config.json")
