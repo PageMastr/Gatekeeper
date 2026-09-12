@@ -43,7 +43,24 @@ verdict reports both).
 | `prop_between` | `path`, `property`, `min`, `max` | numeric property inside range |
 | `prop_gt` / `prop_lt` | `path`, `property`, `value` | numeric comparison |
 | `prop_eq` | `path`, `property`, `value` | string-compared equality |
+| `probe_min` / `probe_max` | `probe`, `gt`/`lt`/`min`/`max` | the lowest/highest value a **numeric** probe reached at any point in the run |
+| `probe_at` | `probe`, `label`, `gt`/`lt`/`equals`/`min`/`max` | the probe's value at the end of the step with that `label` |
 | `expr` | `expr` | arbitrary GDScript `Expression`, evaluated against the scene root |
+
+**`moved` and `still` are for position probes only.** On a numeric probe they
+now fail with an explanation rather than passing — `still` on a float used to be
+green for any tolerance, because path length is only accumulated for `Vector3`.
+A check that cannot fail is worse than no check.
+
+**To assert something about a *moment*, label the step and use `probe_at`.**
+Every check is otherwise evaluated once, after the last step, so an end-of-run
+value cannot distinguish two causes that both reset the same field:
+
+```json
+{"steps": [{"actions": ["wait_for_dawn"], "seconds": 3, "label": "dawn_fired"}],
+ "checks": [{"name": "had_faith_when_dawn_hit", "kind": "probe_at",
+             "probe": "mika_faith", "label": "dawn_fired", "gt": 0}]}
+```
 
 `property` accepts sub-paths: `"global_position:y"`, `"velocity:x"`.
 

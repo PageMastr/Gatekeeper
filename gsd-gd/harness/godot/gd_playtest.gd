@@ -32,6 +32,16 @@ var probe_first: Dictionary = {}
 var probe_last: Dictionary = {}
 var probe_path_len: Dictionary = {}
 var probe_visited: Dictionary = {}   # probe -> {node_name: true} for `via` checks
+## Numeric probes get real history. Without it a scalar probe reported
+## path_length 0.0, which made `{"kind": "still", "probe": <float>}` vacuously
+## green - a check that could not fail. That is a latent false pass, and a gate
+## that cannot fail is worse than no gate.
+var probe_min: Dictionary = {}       # probe -> lowest value seen
+var probe_max: Dictionary = {}       # probe -> highest value seen
+var probe_numeric: Dictionary = {}   # probe -> true once a number is seen
+## Value of every probe at the end of each labelled step, so a gate can assert
+## "X was true AT THE MOMENT Y happened" instead of only at the end of the run.
+var probe_at: Dictionary = {}        # label -> {probe: value}
 var _via_nodes: Array[String] = []
 var _via_radius: float = 0.0
 var scene_root: Node = null
@@ -173,6 +183,14 @@ func _do_step(step_v: Variant) -> void:
 	for act in held:
 		Input.action_release(act)
 
+	# Snapshot every probe at this moment, keyed by the step's label.
+	if step.has("label"):
+		var snap := {}
+		for key in plan.get("probes", {}):
+			if probe_last.has(key):
+				snap[key] = probe_last[key]
+		probe_at[str(step["label"])] = snap
+
 	if step.has("shot_after"):
 		await _shoot(str(step["shot_after"]))
 
@@ -252,6 +270,11 @@ func _sample_probes(first: bool) -> void:
 				continue
 			if _probe_is_inside(node, n):
 				probe_visited[key][want_node] = true
+		if typeof(val) in [TYPE_INT, TYPE_FLOAT]:
+			var f := float(val)
+			probe_numeric[key] = true
+			probe_min[key] = f if not probe_min.has(key) else minf(float(probe_min[key]), f)
+			probe_max[key] = f if not probe_max.has(key) else maxf(float(probe_max[key]), f)
 		if first and not probe_first.has(key):
 			probe_first[key] = val
 			probe_path_len[key] = 0.0
@@ -289,6 +312,12 @@ func _evaluate_checks() -> void:
 			"moved":
 				var key := str(c.get("probe", ""))
 				var want := float(c.get("min", 1.0))
+				if probe_numeric.get(key, false):
+					checks.append({"name": check_name, "ok": false, "kind": kind,
+							"detail": ("probe '%s' is numeric, not a position - `moved` "
+									+ "measures path length. Use probe_min/probe_max/"
+									+ "probe_at.") % key})
+					continue
 				var travelled := float(probe_path_len.get(key, 0.0))
 				var straight := 0.0
 				if typeof(probe_first.get(key)) == TYPE_VECTOR3 and typeof(probe_last.get(key)) == TYPE_VECTOR3:
@@ -316,9 +345,63 @@ func _evaluate_checks() -> void:
 			"still":
 				var key2 := str(c.get("probe", ""))
 				var tol := float(c.get("max", 0.05))
-				var moved := float(probe_path_len.get(key2, 0.0))
-				ok = moved <= tol
-				detail = "path=%.3f need<=%.3f" % [moved, tol]
+				if probe_numeric.get(key2, false):
+					# path_length is only accumulated for Vector3 probes, so on a
+					# scalar this read 0.0 and passed for ANY tolerance - a check
+					# that could not fail. Refuse it rather than be green.
+					ok = false
+					detail = ("probe '%s' is numeric, not a position - `still` measures "
+							+ "path length and would pass vacuously. Use probe_min/"
+							+ "probe_max/probe_at, or probe a Vector3.") % key2
+				else:
+					var moved := float(probe_path_len.get(key2, 0.0))
+					ok = moved <= tol
+					detail = "path=%.3f need<=%.3f" % [moved, tol]
+			"probe_min", "probe_max":
+				# The lowest/highest value a numeric probe reached during the run.
+				# "did faith ever hit zero" is a different question from "is faith
+				# zero now", and only this can answer it.
+				var pk := str(c.get("probe", ""))
+				if not probe_numeric.get(pk, false):
+					detail = "probe '%s' never produced a number" % pk
+				else:
+					var actual: float = float(
+							probe_min.get(pk, 0.0) if kind == "probe_min"
+							else probe_max.get(pk, 0.0))
+					var lo := float(c.get("min", -INF))
+					var hi := float(c.get("max", INF))
+					if c.has("gt"):
+						lo = float(c["gt"])
+						ok = actual > lo
+					elif c.has("lt"):
+						hi = float(c["lt"])
+						ok = actual < hi
+					else:
+						ok = actual >= lo and actual <= hi
+					detail = "%s(%s) = %.4f over the run" % [kind, pk, actual]
+			"probe_at":
+				# The value of a probe AT the end of a labelled step. This is how a
+				# gate asserts "X was true at the moment Y happened" - an end-of-run
+				# value cannot distinguish two causes that both reset the same field.
+				var pk2 := str(c.get("probe", ""))
+				var lbl := str(c.get("label", ""))
+				if not probe_at.has(lbl):
+					detail = ("no step labelled '%s' ran - label the step you mean, "
+							+ "and note a step is only snapshotted after it finishes") % lbl
+				elif not (probe_at[lbl] as Dictionary).has(pk2):
+					detail = "probe '%s' had no value at '%s'" % [pk2, lbl]
+				else:
+					var v2 = (probe_at[lbl] as Dictionary)[pk2]
+					var fv := float(v2) if typeof(v2) in [TYPE_INT, TYPE_FLOAT] else NAN
+					if c.has("gt"):
+						ok = fv > float(c["gt"])
+					elif c.has("lt"):
+						ok = fv < float(c["lt"])
+					elif c.has("equals"):
+						ok = str(v2) == str(c["equals"])
+					else:
+						ok = fv >= float(c.get("min", -INF)) and fv <= float(c.get("max", INF))
+					detail = "%s at '%s' = %s" % [pk2, lbl, v2]
 			"node_exists":
 				var p := str(c.get("path", ""))
 				ok = scene_root.get_node_or_null(NodePath(p)) != null
@@ -432,7 +515,9 @@ func _finish() -> void:
 		"checks": checks,
 		"perf": _perf(),
 		"probes": {"first": _stringify(probe_first), "last": _stringify(probe_last),
-				"path_length": probe_path_len},
+				"path_length": probe_path_len,
+				"min": probe_min, "max": probe_max,
+				"at": _stringify_nested(probe_at)},
 		"frames_run": frames,
 		"errors": errors,
 		"renderer": DisplayServer.get_name(),
@@ -443,6 +528,13 @@ func _finish() -> void:
 		f.close()
 	print("GDVERDICT " + JSON.stringify(verdict))
 	get_tree().quit(0 if verdict["passed"] else 1)
+
+
+func _stringify_nested(d: Dictionary) -> Dictionary:
+	var out := {}
+	for k in d:
+		out[k] = _stringify(d[k])
+	return out
 
 
 func _stringify(d: Dictionary) -> Dictionary:

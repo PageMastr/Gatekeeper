@@ -1014,3 +1014,115 @@ live games: harness `current`, zero failing files.
 3. Backfill `SYSTEM_FINDINGS.md` into the four running games, and move
    Ringfall's `E.n` table out of its `PLAN.md` into it, so the sweep at ship
    time finds it where it expects to.
+
+---
+
+# Loop 7 — 21:00Z · the findings artefact pays for itself in 35 minutes
+
+| game | jobs | passed | running | open ckpt | check | harness | findings |
+|---|---|---|---|---|---|---|---|
+| Ringfall | 13 | **12** | 0 | 0 | 0 failing | current | 1 real |
+| the-last-lamp | 7 | 3 | 0 | 4 | 0 failing | current | 0 |
+| henhouse | 9 | 3 | 0 | 2 | 0 failing | current | 0 |
+| paper-boat | 6 | 3 | 1 | 2 | 0 failing | current | 1 real |
+
+Ringfall is 12/13 with no open checkpoints. the-last-lamp ran a gauntlet —
+`gauntlet arena: 78/78, 15 frames rendered identically in one run`.
+
+**`SYSTEM_FINDINGS.md` shipped 35 minutes ago and has already produced two real
+faults**, both with mechanism, evidence, severity and a suggested fix. Neither
+would have come from testing the system against itself. The artefact is
+justified.
+
+## E.12 (Ringfall) — a latent **false pass** in the harness
+
+The best bug report this exercise has received. Abridged:
+
+> The playtest harness keeps no history for scalar probes, and every check is
+> evaluated only once, after the last step. So a gate can never assert "X was
+> true *at the moment* Y happened" — which is exactly what a failure-state gate
+> needs. […] `{"kind": "still", "probe": <a float probe>}` is **vacuously green
+> — a check that cannot fail**.
+
+With line numbers: `_sample_probes()` accumulates `probe_path_len` only inside
+`elif … typeof(val) == TYPE_VECTOR3` (L258), so a scalar probe keeps the `0.0`
+written at L257, and `still` reads that same dictionary at L319 — green for any
+tolerance ≥ 0.
+
+The concrete cost: `can_lose_dawn` could not distinguish death-by-ring-dawn from
+death-by-starvation, because `_become_gone()` zeroes `faith` in both and only
+the end-of-run value was visible.
+
+**A gate that cannot fail is worse than no gate**, and it is the top severity in
+our own vocabulary. Fixed:
+
+- **`still` and `moved` on a numeric probe now FAIL with an explanation** rather
+  than passing. Refusing is right: the check is meaningless on that probe.
+- **Numeric probes keep real history** — `min`/`max` across the whole run,
+  exposed in the verdict.
+- **New `probe_min` / `probe_max` kinds** — "did faith ever reach zero" is a
+  different question from "is faith zero now".
+- **New `probe_at` kind**, and every labelled step now snapshots all probes.
+  This is the "X was true at the moment Y happened" assertion that was
+  unexpressible. `{"kind": "probe_at", "probe": "mika_faith", "label":
+  "dawn_fired", "gt": 0}` says exactly what job 13 wanted to say.
+
+Verified end to end on a jump:
+
+```
+[FAIL] LATENT_FALSE_PASS_still_on_scalar  probe 'height' is numeric, not a
+       position - `still` measures path length and would pass vacuously.
+[ok]   rose_at_some_point                 probe_max(height) = 1.9718 over the run
+[ok]   height_at_the_moment_of_jump       height at 'jumped' = 1.30999839305878
+[FAIL] moved_on_a_scalar_is_refused       probe 'height' is numeric…
+```
+
+## E.1 (paper-boat) — `gd check` could not see a scene-embedded script
+
+> Project-wide `gd check` reported `"files": 8` — every `.gd` on disk, and zero
+> scene-embedded scripts; `scenes/lab_soak.tscn` carries a 50-line
+> `[sub_resource type="GDScript"]` that was not among them. […] the failure
+> surfaces 150 s later as a runtime error instead of instantly as a type error.
+
+And it filed its workaround, exactly as the template asks: *"wrote the driver
+source to `scripts/_zz_tmp_check.gd`, ran `gd check` on it, deleted it, then
+embedded the verified source"* — with the fix it wanted: *"`gd check` learns to
+extract `script/source` from `.tscn`/`.tres`"*.
+
+**Fixed as asked.** `gd check` now extracts every
+`[sub_resource type="GDScript"]` from `.tscn`/`.tres`, unescapes it, type-checks
+it inside the project so `res://` resolves, and reports it as
+`res://scenes/x.tscn::GDScript_id`. Verified against a scene whose built-in
+script uses `Spatial`:
+
+```
+[FAIL] res://scenes/embedded.tscn::GDScript_soak
+       engine: Identifier "Spatial" not declared. Did you mean to use "Node3D"?
+```
+
+The workaround in paper-boat can now come out — which is precisely why the
+template has a *workarounds currently in force* table.
+
+## 27. Cleanup left its own litter
+
+First cut of the above deleted the temp `.gd` files but left the directory:
+Godot writes a `.uid` beside every script it imports, so `rmdir` found it
+non-empty. A tool that checks your project should not leave files in it.
+`shutil.rmtree` now. Small, but it is the class of thing that erodes trust in a
+tool that is supposed to be invisible.
+
+## The template's placeholder row is being filed as a finding
+
+Three of four games have a literal `| E.1 | | | | open |` row — the template's
+example, left in place and counted. Harmless, but it makes "how many findings"
+unreliable, which matters now that `/gd:ship` sweeps on it. The example row
+should be commented out rather than look like data.
+
+## Carried forward
+
+1. **22** — `gd.py` and friends still unversioned. Unchanged.
+2. **24** — `--smoke` still unexercised in the wild.
+3. Fix the `SYSTEM_FINDINGS.md` placeholder row so it cannot be miscounted.
+4. Ringfall's `E.n` numbering collides with its own `PLAN.md` engine-contract
+   namespace (it started at E.12 to avoid it, and said so). Worth a note in the
+   template that the findings file owns its own numbering.

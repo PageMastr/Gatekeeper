@@ -39,9 +39,15 @@ python <gd> now        # the timestamp - never type one from memory
 
 ## Findings
 
+This file owns its own `E.n` numbering. If a phase plan happens to use `E.n`
+for something else, keep them separate — one meaning per label, per file.
+
 | # | finding | mechanism / evidence | severity | status |
 |---|---|---|---|---|
-| E.1 | | | | open |
+
+<!-- Row shape, not a finding. Delete this comment when you file E.1.
+| E.1 | `still` on a scalar probe is vacuously green | `_sample_probes()` only accumulates path_length for TYPE_VECTOR3 (L258), so a float probe keeps 0.0 and `ok = moved <= tol` is true for any tolerance | false-pass | open |
+-->
 
 **severity:** `false-pass` (a gate certified something untrue — highest),
 `false-fail` (a gate rejected correct work), `blocks` (cannot proceed),

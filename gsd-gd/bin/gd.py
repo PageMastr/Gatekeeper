@@ -358,6 +358,32 @@ def cmd_init(a) -> int:
     return 0
 
 
+def embedded_scripts(path: Path):
+    """GDScript embedded in a .tscn/.tres as `[sub_resource type="GDScript"]`.
+
+    A scene whose driver is a built-in script had no way to be analysed at all:
+    `gd check` only ever globbed `*.gd`, so a 50-line embedded script was
+    invisible to the gate and its type errors surfaced 150 seconds later as a
+    runtime failure. One project worked around it by writing the source to a
+    temp file, checking that, and pasting it back.
+
+    Yields (sub_resource_id, source_text).
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for m in re.finditer(
+            r'\[sub_resource type="GDScript"[^\]]*id="([^"]+)"\]\s*'
+            r'script/source\s*=\s*"(.*?)"\s*(?=\n\[|\Z)',
+            text, re.S):
+        sid, raw = m.group(1), m.group(2)
+        # .tscn escapes " and \ inside the quoted source block.
+        src = raw.replace('\\"', '"').replace("\\\\", "\\")
+        if src.strip():
+            yield sid, src
+
+
 def ensure_class_cache(proj: Path) -> dict:
     """Reimport when Godot's global class cache is missing or stale.
 
@@ -1484,6 +1510,29 @@ def cmd_check(a) -> int:
     stale = cache_state["was_stale"]
     autoloads = project_autoloads(proj)
 
+    # Scene-embedded scripts: extract to a temp .gd inside the project so res://
+    # resolves, check it, then remove. Reported under `<scene>::<sub_resource id>`.
+    embedded = []
+    if not a.files:
+        for scene in sorted(list(proj.rglob("*.tscn")) + list(proj.rglob("*.tres"))):
+            if ".godot" in scene.parts:
+                continue
+            for sid, src in embedded_scripts(scene):
+                embedded.append((scene, sid, src))
+    tmp_dir = proj / "scripts" / "_gd_embedded_check"
+    tmp_written = []
+    if embedded:
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        for scene, sid, src in embedded:
+            f = tmp_dir / (re.sub(r"[^A-Za-z0-9_]", "_", scene.stem + "_" + sid) + ".gd")
+            f.write_text(src, encoding="utf-8")
+            tmp_written.append((f, scene, sid))
+        targets = list(targets) + [f for f, _, _ in tmp_written]
+        ensure_class_cache(proj)
+
+    label_for = {f: "%s::%s" % ("res://" + str(sc.relative_to(proj)).replace("\\", "/"), sid)
+                 for f, sc, sid in tmp_written}
+
     results = []
     for p in targets:
         try:
@@ -1520,13 +1569,21 @@ def cmd_check(a) -> int:
                     scan = json.loads(ln[len("GDDOCSCAN "):])
                 except json.JSONDecodeError:
                     pass
-        results.append({"file": res, "ok": not engine_errors and scan.get("ok", True),
+        results.append({"file": label_for.get(p, res),
+                        "embedded": p in label_for,
+                        "ok": not engine_errors and scan.get("ok", True),
                         "engine_errors": engine_errors[:12],
                         "autoloads_forgiven": sorted(set(autoload_notes)),
                         "godot3_findings": scan.get("findings", [])})
 
+    # Remove the whole temp tree: Godot writes a .uid beside each script it
+    # imports, so unlinking only the .gd files leaves the directory behind.
+    if tmp_written and tmp_dir.exists():
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
     ok = all(x["ok"] for x in results)
     emit("check", {"ok": ok, "files": len(results),
+                   "embedded_scripts": len(tmp_written),
                    "imported_first": imported_first, "cache_was_stale": stale,
                    "autoloads": autoloads,
                    "failed": [x["file"] for x in results if not x["ok"]],
