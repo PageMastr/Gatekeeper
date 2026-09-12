@@ -26,10 +26,38 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parents[2]      # D:/ClaudeGameDev
-SYS_DIR = ROOT / "gsd-gd"
+# Two different roots, and conflating them is the bug that makes a global
+# install share one game's contracts across every project on the machine.
+#
+#   SYS_DIR - where gsd-gd is installed. Read-only at runtime except for cache/:
+#             config, templates, lib, harness. Found from this file's location,
+#             so the system works wherever it is installed.
+#   WORK    - the user's game workspace. Owns .planning/ and game/. Found from
+#             the cwd, so one install can drive many separate games.
+SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
 CONFIG = SYS_DIR / "config.json"
-PLANNING = ROOT / ".planning"
+
+
+def _find_work_root() -> Path:
+    """Resolve the workspace: explicit override, then an existing project, then
+    a repo root, then the cwd."""
+    env = os.environ.get("GD_PROJECT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if p.is_dir():
+            return p
+    here = Path.cwd().resolve()
+    for cand in [here, *here.parents]:
+        if (cand / ".planning").is_dir():
+            return cand
+    for cand in [here, *here.parents]:
+        if (cand / ".git").exists():
+            return cand
+    return here
+
+
+WORK = _find_work_root()
+PLANNING = WORK / ".planning"
 
 
 # --------------------------------------------------------------------------- #
@@ -75,7 +103,7 @@ def locate_project(start=None):
     for cand in [p, *p.parents]:
         if (cand / "project.godot").exists():
             return cand
-    for cand in sorted(ROOT.glob("game/*/project.godot")):
+    for cand in sorted(WORK.glob("game/*/project.godot")):
         return cand.parent
     return None
 
@@ -148,7 +176,13 @@ def cmd_doctor(a) -> int:
 
     soft = ("planning_dir", "godot_project")
     ok = all(x["ok"] for x in checks if x["check"] not in soft)
-    emit("doctor", {"ok": ok, "checks": checks})
+    emit("doctor", {"ok": ok, "checks": checks,
+                    "system_dir": str(SYS_DIR), "work_root": str(WORK),
+                    "work_root_from": ("GD_PROJECT" if os.environ.get("GD_PROJECT")
+                                       else ".planning found" if PLANNING.is_dir()
+                                       else "git root / cwd")})
+    print("  system  " + str(SYS_DIR))
+    print("  work    " + str(WORK))
     for x in checks:
         mark = "  [ok]   " if x["ok"] else "  [FAIL] "
         print(mark + x["check"] + ("  " + str(x["detail"]) if x["detail"] else ""))
@@ -168,7 +202,7 @@ def tpl(name: str) -> str:
 def cmd_init(a) -> int:
     name = a.name
     slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-")
-    proj = ROOT / "game" / slug
+    proj = WORK / "game" / slug
     if proj.exists() and not a.force:
         die(str(proj) + " already exists (use --force)")
     for d in ("scenes", "scripts", "assets/models", "assets/textures", "assets/audio",
@@ -540,7 +574,10 @@ def cmd_models(a) -> int:
     mc = models_cfg()
     agents_cfg = mc.get("agents") or {}
     rows, drift = [], []
-    agent_dir = ROOT / ".claude" / "agents"
+    # Agent files may be project-scoped or installed at user scope; check both.
+    agent_dirs = [WORK / ".claude" / "agents",
+                  Path.home() / ".claude" / "agents"]
+    agent_dir = next((d for d in agent_dirs if d.is_dir()), agent_dirs[0])
     for name in sorted(set(agents_cfg) | {p.stem for p in agent_dir.glob("gd-*.md")}):
         want = agent_model(name) if name in agents_cfg else None
         entry = agents_cfg.get(name)
@@ -779,7 +816,7 @@ def cmd_run(a) -> int:
             die("PLAN.md defines no `- gate:` lines - the phase has no definition of done")
         results = []
         for cmd_s in gates:
-            p = subprocess.run(cmd_s, shell=True, cwd=str(ROOT), capture_output=True,
+            p = subprocess.run(cmd_s, shell=True, cwd=str(WORK), capture_output=True,
                                text=True, encoding="utf-8", errors="replace", timeout=a.timeout)
             tail = strip_ansi((p.stdout or "") + (p.stderr or ""))[-600:]
             results.append({"cmd": cmd_s, "ok": p.returncode == 0,
@@ -904,7 +941,7 @@ def cmd_blender(a) -> int:
         die("missing blender bootstrap at " + str(boot))
     env = dict(os.environ,
                GD_LIB=str(SYS_DIR / "lib"),
-               GD_ROOT=str(ROOT),
+               GD_ROOT=str(WORK),
                GD_PLANNING=str(PLANNING),
                GD_SCRIPT=str(script))
     cmd = [blender_bin(), "-b", "--factory-startup", "--python", str(boot), "--", str(script)]

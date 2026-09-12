@@ -3,6 +3,14 @@
 A GSD-style, spec-driven, context-engineered system for building games with
 Godot and Blender. Read this file, then `gsd-gd/references/laws.md`.
 
+## Installing / two roots
+
+`python install.py` installs this at user scope (`~/.claude/`) so `/gd:*` works
+in any session. **`SYS_DIR` and `WORK` are separate roots**: the system lives
+where it is installed, while `.planning/` and `game/` are created in the
+directory you are working in. Conflating them would make every game on the
+machine share one Color Bible. `gd doctor` prints both.
+
 ## What this repo is
 
 - `gsd-gd/` — the system. CLI, Blender library, Godot harness, templates, doctrine.

@@ -58,10 +58,51 @@ Other deliberate departures from GSD Core:
 
 ---
 
+## Install
+
+To use `/gd:*` from **any** Claude Code session, in any directory:
+
+```bash
+python install.py             # copy into ~/.claude
+python install.py --link      # junction gsd-gd/ instead, so repo edits take effect live
+python install.py --dry-run   # show what it would do
+python install.py --uninstall
+```
+
+It places:
+
+| | |
+|---|---|
+| `~/.claude/gsd-gd/` | the system — config, templates, lib, harness, `bin/gd.py`, `bin/gddoc.py`, references, cache |
+| `~/.claude/commands/gd/` | the 17 slash commands |
+| `~/.claude/agents/` | the 10 agents |
+| `~/.claude/skills/godot-api/` | the API-lookup skill |
+| `~/.claude/settings.json` | two permissions **merged in** — your existing settings are preserved and backed up to `settings.json.gd-backup` |
+
+Commands and agents are **rewritten on the way in**: every `python gsd-gd/bin/…`
+becomes an absolute path, and every `@gsd-gd/references/…` include becomes an
+explicit read of an absolute path. Relative paths only resolve when the cwd
+happens to be this repo, which is exactly what a user-scope install is not.
+
+### One install, many games
+
+`SYS_DIR` (where the system lives) and `WORK` (where your game lives) are
+separate. `.planning/` and `game/` are created in **whatever directory you are
+working in** — so every game keeps its own Color Bible, Core Loop and roadmap,
+and the install stays clean.
+
+`WORK` resolves in this order: `$GD_PROJECT` → the nearest ancestor containing
+`.planning/` → the nearest git root → the cwd. `gd doctor` prints both roots if
+you are ever unsure which is which.
+
+Project scope still wins where it exists, so this repo keeps using its own
+`.claude/` copies — handy for changing the system without disturbing the
+installed one.
+
 ## Getting started
 
-Nothing to install — Python 3, Godot and Blender are already here. In Claude
-Code, two commands per phase is the whole loop:
+Nothing else to install — Python 3, Godot and Blender are already here. In
+Claude Code, two commands per phase is the whole loop:
 
 ```
 /gd:new  a snowbound cabin at night, one fire, something out there

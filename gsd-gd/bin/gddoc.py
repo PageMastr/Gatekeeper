@@ -39,8 +39,8 @@ for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
-ROOT = Path(__file__).resolve().parents[2]
-SYS_DIR = ROOT / "gsd-gd"
+# Derived from this file's location so the tool works wherever it is installed.
+SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
 CACHE = SYS_DIR / "cache"
 INDEX = CACHE / "godot-api-index.json"
 
