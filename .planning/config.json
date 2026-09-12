@@ -1,0 +1,11 @@
+{
+  "_doc": "Per-project overrides, deep-merged over gsd-gd/config.json. Set ONLY what differs from the machine default - anything absent here inherits. This file is the reason one game's numbers are not every game's numbers.",
+  "budget": {
+    "max_shadow_casting_lights": 1,
+    "max_draw_calls": 450
+  },
+  "defaults": {},
+  "models": {
+    "agents": {}
+  }
+}

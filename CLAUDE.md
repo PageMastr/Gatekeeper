@@ -48,6 +48,8 @@ python gsd-gd/bin/gd.py <verb>
 | `palette` | regenerate `res://scripts/palette.gd` from the Color Bible |
 | `roadmap [status\|done <id>]` | **validate the stage roadmap** — coverage, stacking, placeholders |
 | `now` | current UTC timestamp — never type one from memory |
+| `config [--init]` | effective config + this project's overrides |
+| `harness [--check]` | (re)install the harness, or detect drift in the grader |
 | `models` | show model routing per agent + flag config/frontmatter drift |
 | `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
 | `check [files]` | **GDScript gate** — engine type-check + Godot-3-ism scan |
@@ -154,6 +156,20 @@ These are enforced by tooling, not just convention. Do not work around them.
 - `.gd_out/` is generated output. Not committed, safe to delete. Graded
   verdicts are archived per attempt to `<phase>/verdicts/`.
 - **Never type a timestamp.** `gd now`. Agents invent plausible ones.
+**Per-project config, never the global.** `gsd-gd/config.json` in the install
+root is **machine defaults only** — it is shared by every game here, so a number
+set there is a number set for all of them. Each project overrides what it needs
+in `.planning/config.json`, deep-merged on top:
+
+```bash
+gd config            # what is in force, and which keys this project overrode
+gd config --init     # add one to an existing project
+```
+
+Budget, playtest defaults, model routing and the Blender snap grid are all
+per-project. `BUDGET.md` justifies the numbers in prose; `.planning/config.json`
+holds them. One source of truth each.
+
 **Never edit the installed system.** `~/.claude/gsd-gd/` is shared by every
 game on this machine and is not under version control. Editing the harness,
 templates or CLI there changes how every other project is graded, with no

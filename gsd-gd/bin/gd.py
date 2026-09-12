@@ -91,10 +91,74 @@ def die(msg: str, code: int = 2):
     raise SystemExit(code)
 
 
+PROJECT_CONFIG_NAME = "config.json"
+
+
+def _deep_merge(base: dict, over: dict) -> dict:
+    """Recursive override. Scalars and lists replace; dicts merge key by key."""
+    out = dict(base)
+    for k, v in (over or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+def project_config_path() -> Path:
+    return PLANNING / PROJECT_CONFIG_NAME
+
+
 def cfg() -> dict:
+    """Effective config: machine defaults, overridden per project.
+
+    `gsd-gd/config.json` lives in the install root and is shared by every game
+    on this machine, so everything in it can only ever be a *default*. A project
+    overrides any of it in `.planning/config.json`, which is deep-merged on top
+    and lives under the project's own version control.
+
+    This exists because the alternative leaked: shared machine-global state with
+    no per-project override meant one game's numbers were every game's numbers,
+    and one game's lighting presets ended up in three others.
+
+    `toolchain` is the deliberate exception in spirit - it describes the machine,
+    not the game - but it is still overridable, because a project pinned to a
+    different engine build is a real case.
+    """
     if not CONFIG.exists():
         die("missing config at " + str(CONFIG))
-    return json.loads(CONFIG.read_text(encoding="utf-8"))
+    base = json.loads(CONFIG.read_text(encoding="utf-8"))
+    p = project_config_path()
+    if p.exists():
+        try:
+            return _deep_merge(base, json.loads(p.read_text(encoding="utf-8")))
+        except json.JSONDecodeError as e:
+            die("%s is not valid JSON: %s" % (p, e))
+    return base
+
+
+def config_provenance() -> dict:
+    """Which keys the project overrode, for `gd config` and verdict stamps."""
+    p = project_config_path()
+    if not p.exists():
+        return {}
+    try:
+        over = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+    def flat(d, prefix=""):
+        out = {}
+        for k, v in d.items():
+            if k.startswith("_"):
+                continue
+            key = prefix + k
+            if isinstance(v, dict):
+                out.update(flat(v, key + "."))
+            else:
+                out[key] = v
+        return out
+    return flat(over)
 
 
 def emit(verb: str, payload: dict) -> None:
@@ -274,12 +338,45 @@ def cmd_init(a) -> int:
         dest.write_text(tpl(t).replace("{{NAME}}", name).replace("{{SLUG}}", slug),
                         encoding="utf-8")
 
+    # Every project gets its own overridable config from the start, so the
+    # per-project path is the obvious one rather than something to discover
+    # after a machine-global value has already leaked into another game.
+    if not project_config_path().exists() or a.force:
+        cmd_config(argparse.Namespace(init=True, force=True))
+
     installed = install_harness(proj)["copied"]
     cmd_palette(argparse.Namespace(project=str(proj)))
     emit("init", {"ok": True, "name": name, "slug": slug, "project": str(proj),
                   "planning": str(PLANNING), "harness": installed,
                   "next": "/gd:frame - lock the Color Bible and Core Loop before any code"})
     return 0
+
+
+def ensure_class_cache(proj: Path) -> dict:
+    """Reimport when Godot's global class cache is missing or stale.
+
+    The cache is what makes one file's `class_name` visible to another. Two ways
+    it lies, and both produce failures on correct code:
+
+      missing - a never-imported project: every cross-file `class_name` reads as
+                "Identifier not declared".
+      stale   - a `class_name` in a file newer than the cache is absent from it,
+                so "Could not find type X" on a type that exists.
+
+    The stale case is not rare: `install_harness()` rewrites the harness scripts
+    on every `gd playtest`, which by itself makes the cache stale and would make
+    `GDLightingRig` unresolvable for the rest of the run. Observed exactly that.
+    """
+    cache = proj / ".godot" / "global_script_class_cache.cfg"
+    stale = False
+    if cache.exists():
+        mtime = cache.stat().st_mtime
+        stale = any(p.stat().st_mtime > mtime
+                    for p in proj.rglob("*.gd") if ".godot" not in p.parts)
+    if not cache.exists() or stale:
+        run([godot_bin(), "--headless", "--path", str(proj), "--import"], timeout=1200)
+        return {"reimported": True, "was_stale": stale, "was_missing": not cache.exists()}
+    return {"reimported": False, "was_stale": False, "was_missing": False}
 
 
 def harness_hash(d: Path) -> str:
@@ -709,6 +806,50 @@ def cmd_roadmap(a) -> int:
     return 0 if ok else 1
 
 
+def cmd_config(a) -> int:
+    """The effective config, and which keys this project overrode."""
+    eff = cfg()
+    prov = config_provenance()
+    p = project_config_path()
+    if a.init:
+        if p.exists() and not a.force:
+            die(str(p) + " already exists (use --force)")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "_doc": ("Per-project overrides, deep-merged over gsd-gd/config.json. "
+                     "Set ONLY what differs from the machine default - anything "
+                     "absent here inherits. This file is the reason one game's "
+                     "numbers are not every game's numbers."),
+            "budget": {},
+            "defaults": {},
+            "models": {"agents": {}},
+        }, indent=2), encoding="utf-8")
+        emit("config", {"ok": True, "action": "init", "path": str(p)})
+        print("  wrote " + str(p))
+        return 0
+    emit("config", {"ok": True, "machine": str(CONFIG),
+                    "project": str(p) if p.exists() else None,
+                    "overrides": prov, "effective": eff})
+    print("  machine  " + str(CONFIG))
+    print("  project  " + (str(p) if p.exists() else "(none - `gd config --init` to add one)"))
+    if prov:
+        print("")
+        print("  overridden by this project:")
+        for k, v in sorted(prov.items()):
+            print("    %-44s %s" % (k, v))
+    else:
+        print("")
+        print("  this project overrides nothing; every value is the machine default")
+    b = project_budget()
+    print("")
+    print("  budget in force (%s):" % b["source"])
+    for k in sorted(b["budget"]):
+        mark = " *" if k in b["overrides"] else "  "
+        v = b["budget"][k]
+        print("   %s %-30s %s" % (mark, k, v if not isinstance(v, dict) else json.dumps(v)))
+    return 0
+
+
 def cmd_models(a) -> int:
     """Show the routing table, and flag drift.
 
@@ -718,15 +859,23 @@ def cmd_models(a) -> int:
     with no override). They must agree, and nothing would otherwise tell you
     when they stop agreeing.
     """
+    # Frontmatter in .claude/agents/*.md is machine-global, so it can only be
+    # compared against the MACHINE config. A project override is not drift - it
+    # is the feature - so the two are reported separately.
+    machine = json.loads(CONFIG.read_text(encoding="utf-8")).get("models") or {}
     mc = models_cfg()
-    agents_cfg = mc.get("agents") or {}
+    agents_cfg = machine.get("agents") or {}
+    proj_over = {k.split(".", 2)[2]: v for k, v in config_provenance().items()
+                 if k.startswith("models.agents.")}
     rows, drift = [], []
     # Agent files may be project-scoped or installed at user scope; check both.
     agent_dirs = [WORK / ".claude" / "agents",
                   Path.home() / ".claude" / "agents"]
     agent_dir = next((d for d in agent_dirs if d.is_dir()), agent_dirs[0])
     for name in sorted(set(agents_cfg) | {p.stem for p in agent_dir.glob("gd-*.md")}):
-        want = agent_model(name) if name in agents_cfg else None
+        entry_m = agents_cfg.get(name)
+        want = (entry_m.get("model") if isinstance(entry_m, dict)
+                else entry_m if isinstance(entry_m, str) else None)
         entry = agents_cfg.get(name)
         why = entry.get("why", "") if isinstance(entry, dict) else ""
         fm = None
@@ -734,8 +883,10 @@ def cmd_models(a) -> int:
         if f.exists():
             m = re.search(r"^model:\s*(\S+)\s*$", f.read_text(encoding="utf-8"), re.M)
             fm = m.group(1) if m else None
-        rows.append({"agent": name, "config": want, "frontmatter": fm, "why": why,
-                     "defined": f.exists()})
+        eff = agent_model(name) if name in (mc.get("agents") or {}) else want
+        rows.append({"agent": name, "machine": want, "effective": eff,
+                     "frontmatter": fm, "why": why, "defined": f.exists(),
+                     "overridden": eff != want})
         if want and fm and want != fm:
             drift.append("%s: config=%s frontmatter=%s" % (name, want, fm))
         if want and not f.exists():
@@ -745,13 +896,20 @@ def cmd_models(a) -> int:
 
     emit("models", {"ok": not drift, "ladder": model_ladder(),
                     "attempts_per_tier": attempts_per_tier(),
-                    "agents": rows, "drift": drift})
+                    "agents": rows, "drift": drift,
+                    "project_overrides": proj_over})
     print("  ladder   " + " -> ".join(model_ladder())
           + "   (%d attempts per tier before escalating)" % attempts_per_tier())
     print("")
     for r in rows:
-        mark = " " if (not r["config"] or r["config"] == r["frontmatter"]) else "!"
-        print("%s %-18s %-7s %s" % (mark, r["agent"], r["config"] or "-", r["why"][:96]))
+        mark = " " if (not r["machine"] or r["machine"] == r["frontmatter"]) else "!"
+        model = r["effective"] or "-"
+        if r["overridden"]:
+            model += "*"
+        print("%s %-18s %-8s %s" % (mark, r["agent"], model, r["why"][:94]))
+    if proj_over:
+        print("")
+        print("  * = overridden by this project (.planning/config.json)")
     if drift:
         print("\n  DRIFT - config and agent frontmatter disagree:")
         for d in drift:
@@ -1154,7 +1312,11 @@ def cmd_blender(a) -> int:
                GD_LIB=str(SYS_DIR / "lib"),
                GD_ROOT=str(WORK),
                GD_PLANNING=str(PLANNING),
-               GD_SCRIPT=str(script))
+               GD_SCRIPT=str(script),
+               # The effective config, so a generator's snap grid and triangle
+               # budgets come from THIS project rather than from whatever the
+               # machine default happens to be.
+               GD_CONFIG_JSON=json.dumps(cfg()))
     cmd = [blender_bin(), "-b", "--factory-startup", "--python", str(boot), "--", str(script)]
     cmd += list(a.args or [])
     t0 = time.time()
@@ -1282,15 +1444,10 @@ def cmd_check(a) -> int:
     if not targets:
         die("no .gd files to check")
 
-    # A never-imported project has no global class cache, so every reference to
-    # a `class_name` in another file reads as "Identifier not declared" - a false
-    # failure on correct code, which is the one thing a gate must never do.
-    # Import once to populate it.
-    cache = proj / ".godot" / "global_script_class_cache.cfg"
-    imported_first = False
-    if not cache.exists():
-        run([godot_bin(), "--headless", "--path", str(proj), "--import"], timeout=1200)
-        imported_first = cache.exists()
+    write_project_gd(proj)
+    cache_state = ensure_class_cache(proj)
+    imported_first = cache_state["reimported"]
+    stale = cache_state["was_stale"]
 
     results = []
     for p in targets:
@@ -1319,7 +1476,7 @@ def cmd_check(a) -> int:
 
     ok = all(x["ok"] for x in results)
     emit("check", {"ok": ok, "files": len(results),
-                   "imported_first": imported_first,
+                   "imported_first": imported_first, "cache_was_stale": stale,
                    "failed": [x["file"] for x in results if not x["ok"]],
                    "results": results})
     for x in results:
@@ -1340,6 +1497,22 @@ def cmd_check(a) -> int:
 # --------------------------------------------------------------------------- #
 # playtest  (the "measure" + "look" gate)
 # --------------------------------------------------------------------------- #
+def project_budget() -> dict:
+    """Budget for THIS game.
+
+    One source of truth: `.planning/config.json` overrides the machine defaults
+    in `gsd-gd/config.json`, deep-merged by cfg(). `BUDGET.md` justifies the
+    numbers in prose and holds the cost model; it does not carry them, because
+    two places holding the same value means the wrong one eventually wins - and
+    it did, silently, on the first try.
+    """
+    b = dict(cfg().get("budget") or {})          # already project-merged
+    over = {k.split(".", 1)[1]: v for k, v in config_provenance().items()
+            if k.startswith("budget.")}
+    return {"budget": b, "overrides": over,
+            "source": str(project_config_path()) if over else str(CONFIG)}
+
+
 PLAN_CHECK_KINDS = {"moved", "still", "node_exists", "prop_between", "prop_gt",
                     "prop_lt", "prop_eq", "expr"}
 
@@ -1443,6 +1616,10 @@ def cmd_playtest(a) -> int:
 
     drift_before = harness_drift(proj)
     harness_info = install_harness(proj)
+    # install_harness() just rewrote the harness scripts, which makes Godot's
+    # global class cache stale - leave it and the run sprays
+    # `Could not find type "GDLightingRig"` and fails on runtime_errors.
+    cache_state = ensure_class_cache(proj)
 
     stem = plan_p.stem
     outdir = Path(a.out).resolve() if a.out else (proj / ".gd_out" / stem)
@@ -1500,12 +1677,18 @@ def cmd_playtest(a) -> int:
     # Which grader graded this. A verdict is only as trustworthy as the harness
     # that produced it, and that harness turned out to be mutable.
     verdict["harness_hash"] = harness_info["hash"]
+    if cache_state["reimported"]:
+        verdict["class_cache_reimported"] = cache_state
     if drift_before["modified"]:
         verdict["harness_was_modified"] = drift_before["modified"]
     verdict["shot_files"] = sorted(p.name for p in (outdir / "shots").glob("*.png"))
     verdict["shots_dir"] = str(outdir / "shots")
 
-    b = cfg()["budget"]
+    bres = project_budget()
+    b = bres["budget"]
+    verdict["budget_source"] = bres["source"]
+    if bres["overrides"]:
+        verdict["budget_overrides"] = bres["overrides"]
     perf = verdict.get("perf") or {}
     fails = []
     if perf.get("fps_avg") is not None and perf["fps_avg"] < b["min_fps"]:
@@ -1592,6 +1775,45 @@ def parse_color_bible(path: Path) -> dict:
     return entries
 
 
+def write_project_gd(proj: Path) -> Path:
+    """Generate res://scripts/gd_project.gd from the effective config.
+
+    The engine side needs the project's numbers, not the machine's. Without
+    this, `GDLightingRig.shadow_budget` defaulted to the shared 4 while
+    `gd playtest` failed the verdict at the project's 1 - the runtime enforcing
+    one number and the gate enforcing another.
+
+    Same pattern as the generated `Palette`: the project's contract, compiled
+    into something GDScript can read.
+    """
+    b = project_budget()["budget"]
+    dest = proj / "scripts" / "gd_project.gd"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "class_name GDProject",
+        "## GENERATED by `gd palette` / `gd playtest` from the effective config",
+        "## (gsd-gd/config.json overridden by .planning/config.json). Do not edit.",
+        "##",
+        "## These are THIS project's numbers. Read them instead of hardcoding a",
+        "## budget in game code - a literal here is a number that disagrees with",
+        "## the gate.",
+        "",
+        "const BUDGET := {",
+    ]
+    for k in sorted(b):
+        v = b[k]
+        if isinstance(v, dict):
+            inner = ", ".join('"%s": %s' % (ik, b[k][ik]) for ik in sorted(v))
+            lines.append('	"%s": {%s},' % (k, inner))
+        else:
+            lines.append('	"%s": %s,' % (k, v))
+    lines += ["}", "",
+              "static func budget(key: String, fallback: Variant = 0) -> Variant:",
+              "	return BUDGET.get(key, fallback)", ""]
+    dest.write_text("\n".join(lines), encoding="utf-8")
+    return dest
+
+
 def cmd_palette(a) -> int:
     """Generate res://scripts/palette.gd so GDScript is bound by the same contract
     the Blender generators are. Any colour typed by hand in a .gd file is a bug."""
@@ -1639,9 +1861,10 @@ def cmd_palette(a) -> int:
         "",
     ]
     dest.write_text("\n".join(lines), encoding="utf-8")
+    proj_gd = write_project_gd(proj)
     write_state("palette_synced", now())
     emit("palette", {"ok": True, "keys": list(entries), "count": len(entries),
-                     "written": str(dest)})
+                     "written": str(dest), "project_gd": str(proj_gd)})
     return 0
 
 
@@ -1721,6 +1944,11 @@ def main(argv=None) -> int:
                    choices=["validate", "status", "done"])
     p.add_argument("stage", nargs="?", help="stage id, for `done`")
     p.set_defaults(fn=cmd_roadmap)
+
+    p = sub.add_parser("config", help="effective config, and this project's overrides")
+    p.add_argument("--init", action="store_true", help="create .planning/config.json")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_config)
 
     sub.add_parser("now", help="current UTC timestamp - never type one from memory"
                    ).set_defaults(fn=cmd_now)

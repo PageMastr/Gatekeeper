@@ -1,4 +1,4 @@
-# Performance Budget — {{NAME}}
+# Performance Budget — Audit2
 
 > Budgets are enforced by `gd playtest`, which fails the run when a number goes
 > out of bounds.

@@ -35,8 +35,37 @@ __version__ = "1.0.0"
 ARGV: list = []
 SCRIPT: str = ""
 
+def _load_config() -> dict:
+    """Effective config, handed in by `gd blender` as GD_CONFIG_JSON.
+
+    Machine defaults merged with this project's `.planning/config.json`, so a
+    game with a 0.5 m kit grid or tighter triangle budgets does not have to
+    change a value that every other game on the machine shares.
+    """
+    raw = os.environ.get("GD_CONFIG_JSON")
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
+CONFIG: dict = _load_config()
+
 # Modular-kit snap grid, in metres. Everything a kit emits should land on it.
-GRID = 0.25
+# Per-project overridable: `.planning/config.json` -> {"blender": {"grid": 0.5}}
+GRID: float = float((CONFIG.get("blender") or {}).get("grid", 0.25))
+
+
+def tri_budget(asset_class: str) -> int:
+    """Triangle budget for an asset class, from the effective config.
+
+    Prefer this to a literal: `check_tris(ob, gd.tri_budget("prop"))` tracks the
+    project's own budget, while `check_tris(ob, 1500)` silently ignores it.
+    """
+    table = ((CONFIG.get("budget") or {}).get("max_asset_tris") or {})
+    return int(table.get(asset_class, 1500))
 
 _checks: list = []
 _reported = False

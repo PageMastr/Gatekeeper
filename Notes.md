@@ -633,3 +633,130 @@ running build — **carried forward as the top open item**.
 4. paper-boat is the only game running fully post-fix — next loop, check whether
    `--smoke`, `--lint`, `via` and the gates-first job actually show up in its
    plan and artefacts.
+
+---
+
+# Full audit — cross-project leakage (20:10Z)
+
+**The principle, as stated:** the GD system is installed once and shared by many
+projects. Every value a project might need to change must be overridable *in the
+project*, without touching the global. No cross-project leaking.
+
+Audited every file under the install root against that. Results below; the
+faults are numbered continuing from the earlier loops.
+
+## The architectural fix
+
+`gsd-gd/config.json` is now **machine defaults only**. Each project gets
+`.planning/config.json`, deep-merged on top, created by `gd init`:
+
+```bash
+gd config            # what is in force, and exactly which keys this project overrode
+gd config --init     # add one to an existing project
+```
+
+Merge is recursive — `budget.max_asset_tris.prop` can be overridden without
+restating the other three classes. `gd config` prints provenance, so a number is
+never mysterious.
+
+## Verdict per shared artefact
+
+| artefact | shared? | verdict |
+|---|---|---|
+| `config.json` → `toolchain` | yes | **correct** — describes the machine, not the game. Still overridable for a project pinned to another engine build. |
+| `config.json` → `budget` | was global | **fixed (17)** — per-project, and the engine side now sees it too |
+| `config.json` → `defaults` (resolutions, warmup/sample frames) | was global | **fixed (18)** — per-project |
+| `config.json` → `models` (agents, ladder, attempts) | was global | **fixed (19)** — per-project |
+| `gdblend.GRID` (0.25 m snap grid) | was a module constant | **fixed (20)** — from the effective config |
+| `gdblend` triangle budgets | not readable at all | **fixed (20)** — `gd.tri_budget("prop")` |
+| `GDLightingRig.PRESETS` | yes | **fixed (17, loop 4)** — extension point; game presets live in `res://scripts/project_presets.gd` |
+| `GDLightingRig.shadow_budget` | default 4, global | **fixed (21)** — reads the project budget |
+| harness `.gd` / `.tscn` | yes | **correct** — it is the grader, and must be one thing. Now drift-detected, hashed into every verdict, and local edits are preserved rather than clobbered. |
+| `gd_playtest.gd` `STEP_FPS` | yes | **correct** — a harness invariant. Changing it per project would make verdicts incomparable. |
+| `cache/godot-api-index.json` | yes | **correct** — engine-global, derived from the engine's own source. |
+| `templates/*` | yes | **correct** — seeds, copied per project at init. |
+| `references/*` | yes | **correct** — doctrine. Shared on purpose. |
+| `bin/gd.py`, `bin/gddoc.py` | yes | **open (22)** — shared unversioned code. See carried forward. |
+
+## The faults, and what each fix was proved against
+
+### 17. Budget was machine-global, with no per-project override
+The trigger: Paper Boat wants 450 draw calls and 1 shadow light against
+defaults of 1200 and 4. The only lever was the shared file, which would have
+imposed a small scene's budget on a full ring station.
+
+Fixed, and **proved by making it fail**: with
+`.planning/config.json` → `budget.max_draw_calls = 1`, a run reports
+`[FAIL] budget: draw_calls_max 3 > 1`, and the verdict records
+`budget_source: .planning/config.json`, `budget_overrides: {max_draw_calls: 1}`.
+
+### The two-sources-of-truth mistake I made and then removed
+My first cut put `- budget:` lines in `BUDGET.md` **and** kept the json. The
+template's defaults then silently beat the explicit project values — I set 450
+and `gd config` reported 1200. Exactly the failure class I have been
+criticising, committed in the act of fixing it.
+
+`BUDGET.md` now holds justification and the cost model; `.planning/config.json`
+holds the numbers. One source each.
+
+### 20. `gdblend` could not see project config at all
+`GRID = 0.25` was a module constant and the triangle budgets were unreachable,
+so every generator hardcoded `check_tris(ob, 1500)` — a literal that ignores
+whatever the project decided.
+
+`gd blender` now passes the effective config as `GD_CONFIG_JSON`. Verified
+inside Blender against a project setting `blender.grid = 0.5` and
+`budget.max_asset_tris.prop = 400`:
+
+```
+ok  grid_from_project_config            GRID=0.5 (expected 0.5)
+ok  tri_budget_from_project_config      prop budget=400 (expected 400)
+ok  tri_budget_inherits_machine_default character budget=12000 (inherited)
+```
+
+### 21. The runtime enforced one shadow budget while the gate enforced another
+`GDLightingRig.shadow_budget` defaulted to the shared `4`. A project set to `1`
+would have had `enforce_shadows()` disable down to four casters at runtime and
+then fail its own gate at one — two numbers, both "the budget".
+
+`gd palette` / `gd playtest` now generate `res://scripts/gd_project.gd` from the
+effective config, and the rig reads `max_shadow_casting_lights` from it. Same
+pattern as the generated `Palette`: the project's contract compiled into
+something GDScript can read.
+
+### 19. A project model override looked like drift
+`gd models` compared agent frontmatter against the *merged* config, so a
+legitimate project override was reported as drift. Frontmatter is machine-global
+and can only be compared to the machine config; the two are now separate, and
+the table shows the **effective** model with `*` where the project overrode it:
+
+```
+  gd-modeler         opus*    asset work is an aesthetic task disguised as a scripting task
+  * = overridden by this project (.planning/config.json)
+```
+
+## A blocking bug the audit surfaced
+
+`gd playtest` calls `install_harness()`, which rewrites the harness scripts —
+and that by itself makes Godot's global class cache stale, so every run after a
+reinstall sprayed `Could not find type "GDLightingRig"` and failed on
+`runtime_errors`. My earlier stale-cache fix was in `gd check` only.
+
+Both now share `ensure_class_cache()`, called after the harness recopy.
+`runtime_errors: []` confirmed.
+
+This also explains Ringfall's earlier "2 failing files": one was a genuine
+in-flight airlock bug, the other a false `Could not find type "Airlock"` from
+the same stale cache. All four games now report **0 failing files**.
+
+## Carried forward
+
+1. **22. `gd.py` / `gddoc.py` / templates / references are shared unversioned
+   code.** `harness_hash` covers the grader; nothing covers the rest. A
+   `gd version` writing an install fingerprint into each verdict would let a
+   result name its whole toolchain. This is the last of the shared-state
+   problem, and the one I hit personally by hot-patching a live install.
+2. **Never hot-patch a live shared install again.** Install to a versioned
+   directory and let projects pin, or stop the world first.
+3. The `.local` backup convention needs a documented recovery path — right now a
+   preserved edit sits there with nothing telling anyone to look at it.
