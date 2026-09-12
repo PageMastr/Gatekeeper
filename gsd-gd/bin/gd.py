@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1448,6 +1449,7 @@ def cmd_check(a) -> int:
     cache_state = ensure_class_cache(proj)
     imported_first = cache_state["reimported"]
     stale = cache_state["was_stale"]
+    autoloads = project_autoloads(proj)
 
     results = []
     for p in targets:
@@ -1458,8 +1460,23 @@ def cmd_check(a) -> int:
         r = run([godot_bin(), "--headless", "--path", str(proj),
                  "--check-only", "--script", res], timeout=a.timeout)
         out = strip_ansi((r.stdout or "") + (r.stderr or ""))
-        engine_errors = [ln.strip() for ln in out.splitlines()
-                         if "SCRIPT ERROR" in ln or "Parse Error" in ln]
+        raw_errors = [ln.strip() for ln in out.splitlines()
+                      if "SCRIPT ERROR" in ln or "Parse Error" in ln]
+        # `--check-only --script` returns from Main::start() BEFORE autoload
+        # globals are registered, so a reference to an autoload singleton fails
+        # as "Identifier not found" on code that is perfectly correct at
+        # runtime. That is a false failure, and one project had already bent its
+        # architecture into a static-accessor workaround to satisfy it.
+        # The global *class* cache IS loaded in this mode, so real unknown types
+        # are still caught - only declared autoload names are forgiven.
+        engine_errors, autoload_notes = [], []
+        for ln in raw_errors:
+            m = re.search(r'Identifier (?:"([^"]+)" not declared|not found: ([A-Za-z_][A-Za-z0-9_]*))', ln)
+            name = (m.group(1) or m.group(2)) if m else None
+            if name and name in autoloads:
+                autoload_notes.append(name)
+            else:
+                engine_errors.append(ln)
 
         g = run([sys.executable, str(SYS_DIR / "bin" / "gddoc.py"), "scan", str(p)],
                 timeout=300)
@@ -1472,11 +1489,13 @@ def cmd_check(a) -> int:
                     pass
         results.append({"file": res, "ok": not engine_errors and scan.get("ok", True),
                         "engine_errors": engine_errors[:12],
+                        "autoloads_forgiven": sorted(set(autoload_notes)),
                         "godot3_findings": scan.get("findings", [])})
 
     ok = all(x["ok"] for x in results)
     emit("check", {"ok": ok, "files": len(results),
                    "imported_first": imported_first, "cache_was_stale": stale,
+                   "autoloads": autoloads,
                    "failed": [x["file"] for x in results if not x["ok"]],
                    "results": results})
     for x in results:
@@ -1515,6 +1534,19 @@ def project_budget() -> dict:
 
 PLAN_CHECK_KINDS = {"moved", "still", "node_exists", "prop_between", "prop_gt",
                     "prop_lt", "prop_eq", "expr"}
+
+
+def project_autoloads(proj: Path) -> list:
+    """Autoload singleton names declared in project.godot."""
+    f = proj / "project.godot"
+    if not f.exists():
+        return []
+    text = f.read_text(encoding="utf-8", errors="replace")
+    if "[autoload]" not in text:
+        return []
+    body = text.split("[autoload]", 1)[1]
+    body = re.split(r"^\[", body, maxsplit=1, flags=re.M)[0]
+    return sorted(set(re.findall(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=", body, re.M)))
 
 
 def project_actions(proj: Path) -> list:
@@ -1572,10 +1604,15 @@ def lint_plan(plan: dict, proj: Path) -> dict:
         if kind in ("moved", "still") and c.get("probe") not in probes:
             errors.append("check '%s' references probe '%s', which is not declared"
                           % (name, c.get("probe")))
-        if kind == "moved" and not c.get("via"):
-            warnings.append("check '%s' asserts distance only - any open floor "
-                            "satisfies it. Add `via` with the nodes that must be "
-                            "traversed." % name)
+        if kind == "moved" and not c.get("via") and not c.get("distance_only"):
+            # An error, not a warning. As a warning this was observed being
+            # emitted and ignored, which is how a check named
+            # "walked_the_spine" passed at 41 m in a scene with no spine.
+            # Distance-only is still allowed - it just has to be stated.
+            errors.append("check '%s' asserts distance only - any open floor "
+                          "satisfies it. Add `via` with the nodes that must be "
+                          "traversed, or set \"distance_only\": true to say you "
+                          "mean it." % name)
         if kind in ("prop_between", "prop_gt", "prop_lt", "prop_eq") and not c.get("path"):
             errors.append("check '%s' has no `path`" % name)
         if kind == "expr" and not str(c.get("expr", "")).strip():
@@ -1626,9 +1663,23 @@ def cmd_playtest(a) -> int:
     shutil.rmtree(outdir, ignore_errors=True)
     (outdir / "shots").mkdir(parents=True, exist_ok=True)
 
+    # A UNIQUE inbox per run. The single shared `_inbox/plan.json` made
+    # concurrent playtests silently swap plans: two overlapping runs in one
+    # parallel wave produced a green PASS reported under the *other* plan's
+    # name. A false green is the worst failure this system can produce, and
+    # `/gd:run` dispatches parallel waves by design.
+    run_id = "%d-%s" % (os.getpid(), uuid.uuid4().hex[:8])
     inbox = proj / ".gd_out" / "_inbox"
     inbox.mkdir(parents=True, exist_ok=True)
-    (inbox / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    plan_rel = "_inbox/%s-%s.json" % (stem, run_id)
+    (proj / ".gd_out" / plan_rel).write_text(json.dumps(plan), encoding="utf-8")
+    # Clear stale inbox files from previous runs, but never one in flight.
+    for old in inbox.glob("*.json"):
+        try:
+            if old.name != Path(plan_rel).name and time.time() - old.stat().st_mtime > 3600:
+                old.unlink()
+        except OSError:
+            pass
 
     d = cfg()["defaults"]
     want_shots = bool(plan.get("shots")) and not a.headless
@@ -1648,7 +1699,7 @@ def cmd_playtest(a) -> int:
             "--quit-after", str(quit_after),
             "res://addons/gd_harness/gd_playtest.tscn",
             "--",
-            "--plan=res://.gd_out/_inbox/plan.json",
+            "--plan=res://.gd_out/" + plan_rel,
             "--out=res://.gd_out/" + stem]
 
     t0 = time.time()
@@ -1672,7 +1723,36 @@ def cmd_playtest(a) -> int:
         print(out[-4000:])
         return 1
 
+    # Cross-validate identity. Previously `verdict["plan"]` was simply stamped
+    # from our own argument, so a swapped plan was undetectable - it is how a
+    # green PASS ended up filed under the wrong plan name.
+    mismatch = []
+    want_name = str(plan.get("name", stem))
+    got_name = str(verdict.get("name", ""))
+    if got_name and got_name != want_name:
+        mismatch.append("verdict name %r != plan name %r" % (got_name, want_name))
+    want_checks = {str(c.get("name", c.get("kind", "")))
+                   for c in plan.get("checks", []) if isinstance(c, dict)}
+    got_checks = {str(c.get("name", "")) for c in verdict.get("checks", [])}
+    # Harness-generated checks (input_action:*, shot:*, timeout, harness) are not
+    # in the plan, so only unexplained *plan-shaped* names are a mismatch.
+    unexplained = {c for c in got_checks - want_checks
+                   if c and not re.match(r"^(input_action:|shot:|timeout$|harness$)", c)}
+    if want_checks and unexplained:
+        mismatch.append("verdict contains checks not in this plan: %s"
+                        % ", ".join(sorted(unexplained)[:6]))
+    if mismatch:
+        emit("playtest", {"ok": False, "reason": "verdict does not match the plan that was run",
+                          "plan": plan_p.name, "mismatch": mismatch,
+                          "hint": "another playtest was probably in flight; re-run this one alone"})
+        for m in mismatch:
+            print("  [FAIL] " + m)
+        print("  Refusing to report this verdict. Re-run serially.")
+        return 1
+
     verdict["plan"] = plan_p.name
+    verdict["plan_name"] = want_name
+    verdict["run_id"] = run_id
     verdict["seconds"] = round(time.time() - t0, 2)
     # Which grader graded this. A verdict is only as trustworthy as the harness
     # that produced it, and that harness turned out to be mutable.

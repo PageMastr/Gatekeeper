@@ -341,8 +341,20 @@ func _evaluate_checks() -> void:
 							ok = f < float(c.get("value", 0.0))
 							detail = "%s = %s, want < %s" % [c.get("property"), v, c.get("value")]
 						"prop_eq":
-							ok = str(v) == str(c.get("value"))
-							detail = "%s = %s, want %s" % [c.get("property"), v, c.get("value")]
+							# Compare numerically when both sides are numbers.
+							# String comparison alone made a correct integer
+							# assertion fail as "motion_mode = 1, want 1.0",
+							# because a JSON 1 arrives in Godot as a float.
+							var want_v = c.get("value")
+							var both_num := (typeof(v) in [TYPE_INT, TYPE_FLOAT]) \
+									and (typeof(want_v) in [TYPE_INT, TYPE_FLOAT])
+							if both_num:
+								ok = is_equal_approx(float(v), float(want_v))
+								detail = "%s = %s, want %s (numeric)" % [
+										c.get("property"), v, want_v]
+							else:
+								ok = str(v) == str(want_v)
+								detail = "%s = %s, want %s" % [c.get("property"), v, want_v]
 			"expr":
 				var e := Expression.new()
 				var src := str(c.get("expr", ""))

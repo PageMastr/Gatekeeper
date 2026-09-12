@@ -100,6 +100,25 @@ for `Time`; most window/screen functions left `OS` for `DisplayServer`.
 
 ### Traps the analyser will *not* catch
 
+- **`--check-only` runs before autoloads exist.** `Main::start()` returns at
+  `main.cpp:4372`, and autoload globals are registered at `main.cpp:4509`, so a
+  bare `MyAutoload.thing()` fails the check with `Identifier not found` on code
+  that is correct at runtime. The global *class* cache **is** loaded in that
+  mode, so a `class_name` resolves. `gd check` forgives declared autoload names
+  for exactly this reason — but if you are calling `godot --check-only`
+  yourself, expect it.
+- **`@export var range` shadows the global `range()`** inside that class only,
+  and the analyser says nothing. Same for any `@export` that collides with a
+  built-in function name.
+- **`_notification(NOTIFICATION_ENTER_TREE)` fires at every level of the script
+  chain**, whereas `_ready` fires only on the most-derived script
+  (`gdscript.cpp:1973` — "notification is not virtual, it gets called at ALL
+  levels"). So a base class can register itself in a group without depending on
+  every subclass remembering `super._ready()`.
+- **A `.tscn` `Transform3D` is written as basis *rows*; the GDScript
+  constructor takes *columns*.** Transcribing one to the other without
+  transposing silently rotates the node.
+
 - **Type inference through `Array.duplicate()` fails.** `var s := arr.duplicate()`
   yields an untyped Array and the *next* line becomes a parse error. Annotate:
   `var s: Array[float] = arr.duplicate()`.

@@ -760,3 +760,143 @@ the same stale cache. All four games now report **0 failing files**.
    directory and let projects pin, or stop the world first.
 3. The `.local` backup convention needs a documented recovery path — right now a
    preserved edit sits there with nothing telling anyone to look at it.
+
+---
+
+# Loop 5 — 20:08Z · the games start auditing the system
+
+All four building, all four writing files in the last 25 minutes.
+
+| game | beat | commits | latest |
+|---|---|---|---|
+| Ringfall | greybox | **16** | `wave 3 findings: E.11 prop_eq/int, E.12 project_presets` |
+| the-last-lamp | build | 12 | `job 06: fix two references stale since the Law 6b redesign` |
+| henhouse | greybox | 5 | `job 01: isometric camera rig, three pitch candidates` |
+| paper-boat | greybox | 2 | `plan: stage 01 greybox loop — 6 jobs, 5 waves, 2 checkpoints` |
+
+Two things worth noting before the findings: **the-last-lamp noticed my Law 6b
+change mid-build and fixed its own stale references to it** — a doctrine edit
+propagated and was absorbed without being told. And Ringfall has been keeping a
+numbered findings table about the *system*, in its own PLAN.md, with engine
+source citations. Twelve entries. That is the most valuable artefact this
+exercise has produced, and I did not ask for it.
+
+## E.10 — `gd playtest` was not parallel-safe, and produced a FALSE GREEN
+
+The worst fault found so far, and Ringfall found it, with line numbers:
+
+> Every invocation writes the plan to the single shared path
+> `<project>/.gd_out/_inbox/plan.json` (L1363) and launches Godot with
+> `--plan=res://.gd_out/_inbox/plan.json` (L1385), while `verdict["plan"]` is set
+> from gd.py's own argument (L1409) rather than from what Godot actually ran.
+> Two overlapping runs therefore produce a **silent wrong answer**: job 04 saw
+> job 06's `crew_dawn` checks reported under the heading
+> `plan station_modules.json` with a green PASS.
+
+A green PASS filed under the wrong plan. `/gd:run` dispatches parallel waves by
+design — Ringfall's own wave 2 has seven — so this was live, not theoretical.
+And it correctly refused to patch it: *"This is a bug in the tool, not in the
+project. Do not work around it by editing `gd.py` from inside a job."* Law 6b
+held under pressure.
+
+**Fixed two ways**, because one was not enough:
+- Unique inbox per run (`_inbox/<stem>-<pid>-<uuid>.json`), so plans cannot
+  collide.
+- **Identity cross-validation**: the verdict's `name` must match the plan's, and
+  any check name in the verdict that is not in the plan (and is not a
+  harness-generated `input_action:` / `shot:` / `timeout` / `harness` entry)
+  makes `gd playtest` *refuse to report the verdict at all*. Stamping our own
+  argument into `verdict["plan"]` is precisely what made the swap invisible.
+
+Verified by running two playtests concurrently: `pa` reported only `pa_moved`,
+`pb` only `pb_moved`.
+
+## E.1 — my gate was false-failing on autoloads, and it bent a project's architecture
+
+> `gd check` runs `godot --headless --check-only --script <file>`, and
+> `Main::start()` returns at `main.cpp:4372` **before** autoload globals are
+> registered at `main.cpp:4509`. So `Events.x.emit()` fails the gate with
+> `Identifier not found: Events` on code that is perfectly correct at runtime.
+
+Ringfall had already worked around it — E.1 instructs every job to write
+`var _bus: EventBus = EventBus.bus()` and never the bare autoload identifier.
+**My broken gate reshaped their architecture into a static-accessor pattern.**
+That is worse than a false failure; it is a false failure that got designed
+around.
+
+Fixed: `gd check` reads the `[autoload]` section of `project.godot` and forgives
+`Identifier not found` / `not declared` **only** for declared autoload names,
+reporting them as `autoloads_forgiven`. Ringfall's own note that the global
+*class* cache is loaded in that mode is what makes this safe.
+
+Regression-tested, because masking real errors would be far worse: a script
+using `NotAnAutoload.do_thing()` and `Spatial.new()` still fails on both.
+
+## E.11 — `prop_eq` could not assert an integer
+
+> It compares `str(actual) == str(want)`, and a JSON `1` arrives in Godot as a
+> float, so a correct `motion_mode == MOTION_MODE_FLOATING` fails as
+> `motion_mode = 1, want 1.0`.
+
+Fixed: numeric comparison via `is_equal_approx()` when both sides are numbers,
+string comparison otherwise. Verified — `int_equality  motion_mode = 0, want 0.0
+(numeric)` now passes, and string equality still works.
+
+## Engine knowledge worth keeping (from Ringfall's E.4, E.8, E.9)
+
+Not system faults, but real Godot 4.7 findings with citations, and better than
+anything in our references:
+
+- **E.4** — `_notification(NOTIFICATION_ENTER_TREE)` fires at *every* level of
+  the script chain (`gdscript.cpp:1973`, "notification is not virtual, it gets
+  called at ALL levels"), whereas `_ready` fires only on the most-derived
+  script. So a base class can register itself in a group without depending on
+  every subclass remembering `super._ready()`.
+- **E.8** — `@export var range` shadows the global `range()` **inside that class
+  only**, and the analyser is silent about it.
+- **E.9** — a `.tscn` `Transform3D` is written as basis *rows*; the GDScript
+  constructor takes *columns*.
+
+## Post-fix validation: paper-boat
+
+The one game kicked off after the 16 fixes, so it is the test of whether they
+took.
+
+**Fault 10 took, and took cleanly.** Its plan's job 01 is *"Gates written ahead —
+author all four playtest plans this phase is graded by"*, `gd-playtester`,
+wave 1, touching `lab/*.json`. That is the pattern I promoted into `/gd:plan`
+verbatim, emitted without being asked. `--lint` appears in three of its files.
+
+**But `via` did not take.** Its `minute_one.json` has
+`current_carried_the_boat` as a distance-only `moved` check — `--lint` warned,
+and the warning was ignored. Which is the whole lesson of fault 2 repeating: a
+check named for a route, asserting only a distance.
+
+**So the warning is now an error.** A distance-only `moved` check fails
+`--lint` unless it sets `"distance_only": true` — distance-only is still
+allowed, it just has to be *stated*. testgame4's plan now fails lint, correctly.
+
+## 23. Projects created before the config change had no override file
+
+`gd init` now writes `.planning/config.json`, but all four games predate that,
+so none had one — including paper-boat, the very game that needed a tighter
+budget. Backfilled all four with `gd config --init`.
+
+**Paper Boat's budget is now applied**: `max_draw_calls: 450`,
+`max_shadow_casting_lights: 1`, with the reason recorded in the file. Ringfall
+still reads 1200/4. That is the per-project mechanism doing its job on the case
+that prompted it.
+
+## Carried forward
+
+1. **22** (unchanged): `gd.py` and friends are still shared unversioned code.
+2. **24**: `--smoke` has not appeared in any game's artefacts. It was added to
+   `/gd:plan`'s kickoff, but all four kickoffs predate it, so it is untested in
+   the wild. Watch the next fresh project.
+3. Fold Ringfall's E.4 / E.8 / E.9 into `references/gdscript-4x.md` and
+   `toolchain.md` — they are better than what is there now.
+4. **A system-findings artefact should be first-class.** Ringfall invented a
+   numbered `E.n` table with source citations and it caught three real faults in
+   one wave. That should be a template, not an emergent behaviour — something
+   like `.planning/SYSTEM_FINDINGS.md` that `/gd:ship` sweeps into the
+   references via `gd-scribe`.

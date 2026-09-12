@@ -79,7 +79,9 @@ gd playtest <plan> --lint
 
 No Godot launch. Catches a typo'd input action (and names the ones that exist),
 an unknown check kind, a check referencing an undeclared probe, an empty `expr`,
-and a `moved` check with no `via`. Run it on every plan you write — it is
+and a `moved` check with no `via` (an **error** - add `via`, or set
+`"distance_only": true` to state that distance really is the claim).
+Run it on every plan you write — it is
 seconds versus a full engine boot.
 
 ## Smoke mode
@@ -128,6 +130,16 @@ describes a game that does not exist yet. Never use it as a real gate.
   the thing.
 
 Exit code is 0 only if every check, every budget, and zero runtime errors agree.
+
+## Never run two playtests at once by hand
+
+`gd playtest` is now safe under concurrency — each run gets a unique plan file,
+and a verdict whose check names do not belong to the plan you asked for is
+**refused** rather than reported. That guard exists because the shared inbox
+once produced a green PASS filed under the wrong plan's name.
+
+If you see *"verdict does not match the plan that was run"*, something else was
+in flight. Re-run that plan alone; the answer you got was not about your plan.
 
 ## When the harness itself is the problem
 
