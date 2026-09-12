@@ -7,8 +7,17 @@ we can improve the base system tomorrow. One entry per loop, appended.
 while managing air, heat, and a crew that's losing faith."* Kicked off with
 `/gd:new`, interview completed by the user.
 
-**Observer cadence:** hourly at :47 (cron `82df0d8a`). 45m was rounded up —
+**Observer cadence:** hourly at :47 (cron `f731ad41`). 45m was rounded up —
 `*/45` fires at :00 then :45, giving alternating 45/15-minute gaps.
+
+**Targets** (widened at loop 3, from one game to three — cross-game repetition is
+what separates a system fault from one agent's bad day):
+
+| workspace | game |
+|---|---|
+| `D:/TestGame` | Ringfall — rebuild a shattered ring station, manage air, heat and crew faith |
+| `D:/testgame2` | The Last Lamp |
+| `D:/testgame3` | Henhouse |
 
 ## Methodology caveat, learned the hard way in loop 1
 
@@ -313,3 +322,136 @@ recommendation.
 3. How the checkpoint after job 01 gets presented and resolved.
 4. Whether the 18-check `minute_one.json` from kickoff gets rewritten by job 10
    or 11, or inherited as permanent noise.
+
+---
+
+# Loop 3 — 19:20Z · scope widened to three games
+
+**Scope change.** Now observing three independent kickoffs of the same system,
+which turns single-game anecdotes into cross-game evidence. Cron rescheduled:
+`82df0d8a` cancelled, **`f731ad41`** created, same hourly-at-:47 cadence.
+
+| workspace | game | beat | phase | jobs | commits | roadmap |
+|---|---|---|---|---|---|---|
+| `D:/TestGame` | Ringfall | greybox | 01-greybox | 13 / 6 waves, **job 01 passed** | 3 | 17 stages, 37 coverage, valid |
+| `D:/testgame2` | The Last Lamp | build | 01-greybox | 7, all pending | 1 | 14 stages, 27 coverage, valid |
+| `D:/testgame3` | Henhouse | frame | none | 0 (mid-decomposition) | **0** | 16 stages, 32 coverage, valid |
+
+## Methodology addendum 2 — my own tooling produced a second false finding
+
+`find -newermt "2026-09-12 19:00"` returned nothing for a job that had just
+written five files. **`-newermt` takes local time; every timestamp in this
+document is UTC**, and this machine is UTC−5. I was comparing against 00:00
+tomorrow and nearly recorded "job 01 passed without writing any files."
+
+For the remaining loops: compare with `date -u -r <file>` per file, never
+`-newermt` with a UTC string. Two near-misses in three loops, both from reading
+a live system with a stale or mis-scoped query — the pattern is that **the
+observation tooling is the least reliable part of this exercise**, not the
+system under test.
+
+## The roadmap contract is holding across three different games
+
+Three kickoffs, three genuinely different games — a dying ring station, something
+called The Last Lamp, and a henhouse — and `gd roadmap` came back green on all
+three, first try: **17 / 14 / 16 stages, 37 / 27 / 32 coverage rows, 12 / 10 / 13
+placeholders, zero errors.** Stage counts vary with the game rather than
+converging on the template's 16, which is what adaptation looks like.
+
+This is the strongest evidence yet that the roadmap contract and its validator
+are right. Leave them alone.
+
+## Ringfall: the system closed a loop end to end
+
+Job 01 passed on the first attempt on opus, and the recorded note is specific:
+*"gd check 9/9 ok, godot3_findings [] on all. playtest foundations PASS 6/6."*
+It wrote `scripts/core/{events,carrier,interactable,interactor}.gd` between
+19:07 and 19:11 and recorded the pass at 19:15.
+
+**And it added the `confirm` input action.** That is fault 4 from loop 1 closing
+itself: the kickoff smoke test flagged `input_action:confirm` as drift → the
+planner scoped it into job 01 ("Foundations: `confirm` action…") → the job added
+it → `gd check` and a real gate verified it. A failed check in a throwaway
+kickoff run became a tracked requirement and got fixed. That whole path worked
+without a human touching it, and it is the best argument for the harness
+reporting drift as a hard failure rather than a warning.
+
+## New faults
+
+### 13. `BUDGET.md` is never written — 3 of 3 games, exactly the template
+All three budget files still have exactly the template's 11 table rows, with
+mtimes equal to their `gd init` time (17:48 / 18:48 / 19:03). Not one kickoff
+touched it.
+
+It is one of the six contracts, and `/gd:plan` never mentions writing it — so
+every game inherits 60 fps / 1200 draw calls / 4 shadow lights / the default
+per-class triangle budgets regardless of what it is. Ringfall has a full ring
+station plus a lit planet; Henhouse is a henhouse. They should not share a
+budget, and the first time anyone finds out is stage 12–14, when the performance
+stage fails against numbers nobody chose.
+
+**Fix:** add a budget step to the kickoff, after the roadmap. It does not need
+to be elaborate — pick the target (desktop/handheld), scale the draw-call and
+triangle numbers to the scene scope the roadmap just described, and if the
+defaults are genuinely right, write a line in Deviations saying they were
+reviewed and accepted. An unreviewed contract is indistinguishable from a
+forgotten one, which is exactly the problem the ledger idea solves elsewhere.
+
+### 14. Every phase gets a `verdicts/` directory that nothing ever writes to
+`gd phase new` creates `<phase>/verdicts/` (gd.py:324). Nothing in the system
+writes there — verdicts land in `game/<slug>/.gd_out/<plan>/verdict.json`. All
+three games have an empty `verdicts/` in their phase directory.
+
+Minor, but it is a dead artefact that implies a place to look for results that
+will always be empty, and it cost me a diagnostic step this loop.
+
+**Fix:** either drop it from `gd phase new`, or — better — have the driver copy
+each graded verdict into it as `<job>-<attempt>.json`. A per-phase, per-attempt
+verdict history is genuinely useful for exactly the retro that `/gd:ship` asks
+for, and right now that history only exists as the last-run file in `.gd_out`,
+which the next run overwrites.
+
+### 15. Commit discipline is inconsistent across games at identical stages
+Ringfall: 3 commits, including one at contract lock. The Last Lamp: 1 commit
+covering the whole kickoff. Henhouse: **0 commits**, with all six contracts and
+a validated 16-stage roadmap written and a phase directory created.
+
+Same system, same beat, three different behaviours — so this is not the game, it
+is the absence of a rule. `/gd:new` runs `git init` and nothing ever says
+*commit the contracts once they are locked.*
+
+**Fix:** make it explicit and mechanical — `gd state palette_locked yes` and
+`loop_locked yes` are already the moment the contracts become real, so the
+kickoff should commit immediately after. Two lines in `/gd:plan`, and it removes
+the case where a night of interview work is one bad edit from gone.
+
+### 16. `STATE.md` can disagree with the phase directory that exists
+Henhouse has `phase: none` in STATE while `.planning/phases/01-greybox/` exists.
+`gd phase new` creates the directory; `gd state phase <name>` is a *separate*
+call the agent must remember. Between the two, STATE lies about where the project
+is — and STATE is what a resumed session trusts.
+
+**Fix:** `gd phase new` should set `state phase` itself. There is no case where
+you create a phase and do not want it to be the current one.
+
+## Fault 10 is now confirmed in practice, not just in theory
+
+Loop 2 flagged that the implementing agent authors its own gate. Ringfall job 01
+did exactly that: it wrote `lab/foundations.json` — its own 6-check gate — and
+then passed it. `gd check` is independent and caught nothing to complain about,
+so nothing is actually wrong with this work; but the gate that certified it was
+written by the thing being certified, and no mechanism noticed.
+
+That raises fault 10 from a doctrinal hole to an observed one. It is now the
+highest-value fix on the list.
+
+## Next loop should check
+
+1. Ringfall wave 2 — seven parallel jobs is the real test of the disjointness
+   claim. Watch for anything landing outside its `touches` list.
+2. How the Ringfall checkpoint after job 01 gets presented (it still reads OPEN,
+   and it contains its own recommendation).
+3. Whether The Last Lamp's 7-job greybox is under-decomposed relative to
+   Ringfall's 13 — compare what a job covers in each.
+4. Whether Henhouse commits anything, and whether its `phase: none` desync
+   resolves on its own.
