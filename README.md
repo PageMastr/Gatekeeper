@@ -63,13 +63,14 @@ Nothing to install — Python 3, Godot and Blender are already here. In Claude
 Code, two commands per phase is the whole loop:
 
 ```
-/gd:plan  a snowbound cabin at night, one fire, something out there
+/gd:new  a snowbound cabin at night, one fire, something out there
 ```
 
-Kickoff interviews you (reference, loop, tension, one-way doors, scope), writes
-the contracts and the roadmap, scaffolds the Godot project with a **playable
-greybox** already in it, decomposes phase 1 into one-session jobs, and arms the
-driver.
+Verifies the toolchain, builds the local Godot API index, scaffolds the Godot
+project with a **playable greybox** already in it, proves the scaffold's gates
+pass — then interviews you (reference, loop, tension, one-way doors, lighting,
+scope), writes the contracts and the roadmap, decomposes phase 1 into
+one-session jobs, and arms the driver.
 
 ```
 /gd:run
@@ -80,8 +81,9 @@ grades every gate itself, escalates a failing job up the model ladder, commits
 per job — and **halts at one-way doors and at the phase gate** so you play it
 before any art gets made.
 
-Then `/gd:playtest` for the human pass and `/gd:ship` to close the phase.
-`/gd:next` will always tell you the single next action.
+Then `/gd:playtest` for the human pass and `/gd:ship` to close the phase. After
+that the loop is `/gd:plan <next milestone>` then `/gd:run`, and `/gd:next` will
+always tell you the single next action.
 
 Every granular beat is still there (`/gd:frame`, `/gd:build`, `/gd:asset`,
 `/gd:lab`, `/gd:light`, `/gd:perf`, `/gd:gauntlet`) for when you want to steer
@@ -166,7 +168,7 @@ generator.py ──blender -b──> asset.glb ──godot --import──> .scn 
 ```
 CLAUDE.md                    the constitution, loaded every session
 .claude/
-  commands/gd/*.md           15 slash commands
+  commands/gd/*.md           17 slash commands
   agents/*.md                10 agents, each routed to a model by role
   skills/godot-api/          the API-lookup discipline
   settings.json              toolchain permissions
@@ -197,7 +199,8 @@ game/<slug>/                 the Godot project
 
 | | |
 |---|---|
-| `/gd:plan` | **entry point** — kickoff (interview → contracts → roadmap → phase 1) or next milestone |
+| `/gd:new` | **first command on a new game** — toolchain, scaffold, then kickoff |
+| `/gd:plan` | kickoff interview, or the next milestone from the roadmap |
 | `/gd:run` | **drive the phase** — waves, grading, escalation, to the gate |
 | `/gd:frame` | revisit the contracts alone, without re-planning |
 | `/gd:greybox` | prove one whole turn of the loop in grey, incl. losing |

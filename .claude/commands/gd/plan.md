@@ -26,6 +26,13 @@ python gsd-gd/bin/gd.py state 2>/dev/null || echo "NO_PROJECT"
 
 State which mode you picked in one line before you start.
 
+**If you are in KICKOFF and `.planning/` does not exist at all**, `/gd:new` is
+the better front door — it verifies the toolchain, builds the API index, checks
+git is live, and proves the scaffold's gates pass *before* anyone spends twenty
+minutes designing on top of it. Say so and invoke the `gd:new` skill instead;
+it will come back here for the interview. If `.planning/` already exists and the
+contracts are merely unlocked, stay here and carry on.
+
 ---
 
 # KICKOFF

@@ -11,14 +11,20 @@ question directly. If they asked nothing specific, give them this:
 ## Start here
 
 ```
-/gd:plan  <your idea>        interviews you, writes the contracts + roadmap,
-                             decomposes phase 1, arms the driver
+/gd:new   <your idea>        brand new game: checks the toolchain, scaffolds the
+                             project, then runs the kickoff interview
 /gd:run                      builds until the phase gate is green, or until it
                              hits a one-way door and needs your decision
 ```
 
-Two commands per phase is the normal loop. Everything else is for when you want
-to steer a specific part by hand.
+After the first phase, the loop is two commands:
+
+```
+/gd:plan  <next milestone>   decompose it into one-session jobs, arm the driver
+/gd:run                      drive it to the gate
+```
+
+Everything else is for steering a specific part by hand.
 
 ## The beat loop underneath
 
@@ -34,7 +40,8 @@ to steer a specific part by hand.
 
 | command | when |
 |---|---|
-| `/gd:plan` | **the entry point.** Kickoff (interview + contracts + roadmap) or the next milestone |
+| `/gd:new` | **first command on a new game.** Toolchain, scaffold, then the kickoff interview |
+| `/gd:plan` | kickoff interview (if not already done) or the next milestone from the roadmap |
 | `/gd:run` | **drive the phase** — waves, grading, escalation, until the gate is green or a door blocks |
 | `/gd:frame` | the contracts alone need revisiting, without re-planning |
 | `/gd:greybox` | the loop is not yet playable in grey |

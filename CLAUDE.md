@@ -65,12 +65,17 @@ log noise.
 ## How a session normally goes
 
 ```
-/gd:plan <idea>     kickoff: interview -> contracts -> roadmap -> phase 1 jobs
+/gd:new <idea>      new game: toolchain, scaffold, then the kickoff interview
+                    -> contracts -> roadmap -> phase 1 jobs -> driver armed
 /gd:run             drive the phase until the gate is green or a door blocks
 ```
 
-`/gd:plan` is context-aware: with no contracts it runs the full kickoff
-interview; with contracts locked it plans the next milestone from the roadmap.
+After phase 1 the loop is `/gd:plan <next milestone>` then `/gd:run`.
+
+`/gd:new` owns first-run setup only (toolchain check, API index, git, naming,
+and a guard against clobbering existing contracts) and then invokes `/gd:plan`
+for the interview — the interview is defined in one place, not two. `/gd:plan`
+is context-aware: unlocked contracts means kickoff, locked means next milestone.
 `/gd:run` then dispatches waves, grades every gate itself, escalates a failing
 job up the model ladder, and **halts at one-way doors and at the phase gate** so
 a human plays it before art starts.

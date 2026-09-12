@@ -23,7 +23,8 @@ python gsd-gd/bin/gd.py run next 2>/dev/null
 
 | condition | next |
 |---|---|
-| no `.planning/`, or contracts not locked | `/gd:plan "<the idea>"` - kickoff runs the interview, contracts and roadmap |
+| no `.planning/` at all | `/gd:new "<the idea>"` - toolchain, scaffold, then the kickoff interview |
+| `.planning/` exists but contracts not locked | `/gd:plan "<the idea>"` - finish the kickoff interview |
 | contracts locked, no current phase | `/gd:plan "<milestone>"` |
 | `run next` says `dispatch` | `/gd:run` |
 | `run next` says `checkpoint` | `/gd:run` - it will surface the one-way door for you to decide |
