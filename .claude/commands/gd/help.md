@@ -6,7 +6,8 @@ allowed-tools: Read, Bash, Glob
 # /gd:help
 
 Read `CLAUDE.md` and `gsd-gd/references/laws.md`, then answer the user's
-question directly. If they asked nothing specific, give them this:
+question directly. If they asked nothing specific, give them this — and if they
+are new to the system, point them at `QUICKSTART.md` first:
 
 ## Start here
 

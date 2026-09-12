@@ -101,6 +101,9 @@ installed one.
 
 ## Getting started
 
+**New here? Read [`QUICKSTART.md`](QUICKSTART.md)** — four commands and what each
+one does.
+
 Nothing else to install — Python 3, Godot and Blender are already here. In
 Claude Code, two commands per phase is the whole loop:
 
