@@ -113,7 +113,12 @@ Now invoke the **`gd:plan`** skill, passing the idea from `$ARGUMENTS`.
 It will see unlocked contracts and enter KICKOFF mode: the interview (reference,
 loop, tension, one-way doors, lighting condition, scope), then
 `CONTEXT.md` → `COLOR_BIBLE.md` → `CORE_LOOP.md` → `minute_one.json` →
-`ROADMAP.md`, then phase 1's job decomposition, ending with the driver armed.
+`ROADMAP.md`, then stage 1's job decomposition, ending with the driver armed.
+
+The roadmap is the big one: the whole game broken into stages that stack, each
+ending in something playable, with a coverage matrix that assigns every Core
+Loop beat and every required element to a stage. `gd roadmap` validates it and
+fails on a hole, so kickoff is not finished until it passes.
 
 Do not pre-answer its questions from `$ARGUMENTS`. Pass the idea through and let
 it ask — the answers are the game, and guessing them is how you end up building
@@ -126,7 +131,7 @@ After the kickoff returns, report as one short block:
 - toolchain: verified (and anything you had to fix)
 - project: name, path, scaffold gates green
 - contracts: the one-sentence loop, the palette keys, the scope fence
-- roadmap: the phases in order, and what phase 1 de-risks
+- roadmap: the stages in order, `gd roadmap` green, and what stage 1 de-risks
 - the next command: `/gd:run`
 
 Then stop. Do not start building — `/gd:run` is a separate, deliberate step, and

@@ -48,7 +48,8 @@ Other deliberate departures from GSD Core:
 
 | GSD Core | here | why |
 |---|---|---|
-| `STATE.md` + `CONTEXT.md` | those **plus** `COLOR_BIBLE.md`, `CORE_LOOP.md`, `BUDGET.md`, `CREDITS.md` | a game's contracts are visual, mechanical, numeric and legal — not just decisions |
+| `STATE.md` + `CONTEXT.md` | those **plus** `COLOR_BIBLE.md`, `CORE_LOOP.md`, `ROADMAP.md`, `BUDGET.md`, `CREDITS.md` | a game's contracts are visual, mechanical, numeric and legal — not just decisions |
+| a phase roadmap | a **validated** stage roadmap with a coverage matrix and a placeholder ledger | "the whole game gets built" has to be a check, not an intention |
 | tests as the gate | **measure + look + perf**, and a human last | a passing test says nothing about whether a frame reads |
 | reviewer agent | a **critic** that is structurally denied the code | a builder reviewing its own work sees what it intended |
 | no asset pipeline | Blender generators as first-class, gated on measured geometry | assets are most of a game, and most of the risk |
@@ -144,6 +145,9 @@ Doctrine that is only written down gets skipped. These are mechanical:
 | model routing has a reason | stored per agent in `config.json`; `gd models` flags drift vs agent frontmatter |
 | a failing job escalates, then stops | `gd run` owns the ladder — no agent grants itself a fourth attempt |
 | an incomplete plan cannot be driven | `gd run init` refuses placeholder gates and untitled jobs |
+| every stage stacks forward | `gd roadmap` fails a stage that depends on a later one |
+| every Core Loop beat is assigned to a stage | `gd roadmap` fails an uncovered beat |
+| no placeholder ships | `gd roadmap` fails a placeholder with no replacing stage |
 | licences logged | `/gd:ship` cross-checks `CREDITS.md` against assets on disk |
 
 ---
@@ -186,8 +190,9 @@ gsd-gd/
   harness/blender/           bootstrap that guarantees one machine-readable result
   templates/                 STATE, CONTEXT, COLOR_BIBLE, CORE_LOOP, ROADMAP,
                              BUDGET, CREDITS, PLAN, JOB, ASSET_SPEC, greybox scene
-  references/                laws, toolchain, godot-patterns, blender-patterns,
-                             gdscript-4x, playtest-recipes, model-routing
+  references/                laws, toolchain, decomposition, godot-patterns,
+                             blender-patterns, gdscript-4x, playtest-recipes,
+                             model-routing
   cache/                     the API index (generated)
 .planning/                   the current game's contracts
 game/<slug>/                 the Godot project

@@ -58,7 +58,32 @@ can detect a regression rather than argue about one:
 
 Take the numbers from the worst-case plan's verdict, not the spawn point.
 
-## 4. Extract the learnings
+## 4. Advance and revise the roadmap
+
+```bash
+python gsd-gd/bin/gd.py roadmap done <stage id>
+python gsd-gd/bin/gd.py roadmap
+```
+
+The first marks the stage done and advances `current stage`. The second
+re-validates — and this is where it earns its keep, because what you just
+learned is allowed to change the plan:
+
+- a stage that turned out to be two stages → split it
+- a stage that is no longer needed → delete it, and move its coverage rows to
+  **Not in this milestone** with a reason
+- an order that was wrong → reorder, keeping `depends on` pointing backwards
+- a placeholder you introduced this phase → add it to the ledger **now**, with
+  the stage that will replace it
+
+Revising is expected; the kickoff roadmap is a forecast. What is not allowed is
+silently dropping a coverage row — that is how an element stops being built
+without anyone deciding it should. The validator will not catch a deletion, so
+this is on you: if something leaves the plan, it leaves visibly.
+
+Add a row to the Revisions table saying what changed and why.
+
+## 5. Extract the learnings
 
 The part everyone skips, and the part that compounds.
 
@@ -72,7 +97,7 @@ The part everyone skips, and the part that compounds.
   not actually parallel, gates that passed for the wrong reason. Write it in the
   phase `PLAN.md` retro section. The next `/gd:plan` reads it.
 
-## 5. Archive and commit
+## 6. Archive and commit
 
 ```bash
 python gsd-gd/bin/gd.py state beat frame          # next milestone starts at frame
@@ -83,7 +108,7 @@ git tag "phase-NN-<slug>"
 
 `.gd_out/` is generated; it does not get committed.
 
-## 6. Optional: a build
+## 7. Optional: a build
 
 Only if the user asks. This is a Godot **source build**, so the export templates
 are the ones in `D:/Godot/GodotEngine/bin/` (Windows x86_64 and Web wasm32) —
@@ -97,7 +122,10 @@ Report, plainly:
 - licences: complete or what is missing
 - budget: this phase vs last
 - learnings written, and where
-- what the next milestone should be, and why
+- the roadmap: stages done / total, and any revision you made
+- what the next stage is, straight off the roadmap, and what it de-risks
 
-Then recommend `/gd:frame` for the next milestone, or `/gd:plan` if the loop and
-palette still hold.
+Then recommend `/gd:plan "<next stage from the roadmap>"`. Only send them back
+to `/gd:frame` if this phase showed the *contracts* are wrong — the loop is not
+fun, or the palette is fighting the assets. That is a real finding, not a
+failure; say it plainly if you saw it.

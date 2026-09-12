@@ -123,23 +123,67 @@ a harness that does not run is a gate that does not exist):
 python gsd-gd/bin/gd.py playtest minute_one
 ```
 
-## 4. Write the roadmap
+## 4. Write the roadmap — the whole game, in stackable stages
 
-`.planning/ROADMAP.md` from `gsd-gd/templates/ROADMAP.md`. The ordered phases
-from here to something you can hand someone.
+@gsd-gd/references/decomposition.md
 
-- **Phase 1 is always the greybox.** Non-negotiable.
-- Each phase ends in something **playable**, not a finished layer.
-- Order by **risk**, not comfort — what is most likely to kill this goes early,
-  while changing your mind is still cheap. Fill in the risk-order table.
-- Every phase needs a gate you can write now. If you cannot write it, the phase
-  is not defined, and a vague phase four is honest where a fake one is not.
+This is the contract that guarantees the *whole* game gets built, in pieces
+small enough to hold in one plan each. Read the reference above before writing
+it; it carries the stage ladder and the ordering rules, both derived from builds
+that actually shipped.
 
-Show the roadmap to the user and get a yes before decomposing phase 1.
+Fill in `.planning/ROADMAP.md` (already scaffolded from the template):
 
-Then continue into **Decompose** below for phase 1 only. Do not plan phases 2+
-in detail — they will be wrong by the time you get there, and `/gd:ship` revises
-the roadmap with what was actually learned.
+**The end state.** One sentence: what the finished thing is, and what "done"
+means concretely enough to argue about.
+
+**The stages.** Start from the ladder in the reference — greybox, core verb,
+world system, placeholder pass, kit, props, hero asset, character, replace
+placeholders, textures, lighting, performance, pressure, feedback, audio,
+sequence — and then **cut what this game does not need**. A 2D game collapses
+the kit/props/hero stages; a game with no enemies drops pressure. Cutting is
+expected; forgetting is what the coverage matrix catches.
+
+For each stage that survives:
+- **Stage 1 is always the greybox.** Non-negotiable.
+- `playable at the end` describes **something a person can do**, not a component
+  that exists. "The cabin is built from kit pieces and walked through" stacks;
+  "the kit is finished" does not — that is accumulation, and you cannot judge it.
+- `depends on` names only **earlier** stages. The validator enforces this, and
+  it is what makes the pieces stack rather than tangle.
+- `gate` is the phase gate that stage's `PLAN.md` will carry.
+
+**The coverage matrix.** Every beat of the Core Loop, plus every noun the game
+needs, names the stage that delivers it. This is the mechanism that makes
+"ensure the entire game gets built" real rather than aspirational — an element
+with no stage is a hole, and it is enormously cheaper to find here than in month
+two.
+
+**The placeholder ledger.** Every primitive standing in for a real thing names
+the stage that replaces it. This is the most forgettable work in a game build:
+placeholders stop being visible once you stop noticing them, and then they ship.
+
+**The one-way doors**, each assigned to the stage that takes it. **The risk
+order**, saying what each early stage retires. **Not in this milestone**, with
+reasons.
+
+Then validate it — this is a gate, not a formatting check:
+
+```bash
+python gsd-gd/bin/gd.py roadmap
+```
+
+It fails on a stage that depends on a later stage, a placeholder `playable`/
+`gate`/name, a Core Loop beat with no coverage row, and a coverage row or
+placeholder pointing at a stage that does not exist. Fix the roadmap rather than
+working around it; every one of those is a real hole.
+
+Show the user the stage list and the risk order, and **get a yes before
+decomposing**. This is the cheapest moment to reorder the whole project.
+
+Then continue into **Decompose** below for **stage 1 only**. Do not plan stages
+2+ in detail — they will be wrong by the time you reach them, and `/gd:ship`
+revises the roadmap with what was actually learned.
 
 ---
 

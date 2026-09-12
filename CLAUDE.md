@@ -7,7 +7,10 @@ Godot and Blender. Read this file, then `gsd-gd/references/laws.md`.
 
 - `gsd-gd/` — the system. CLI, Blender library, Godot harness, templates, doctrine.
 - `.claude/` — commands (`/gd:*`), agent definitions, skills.
-- `.planning/` — the contracts for the game currently being built.
+- `.planning/` — the contracts for the game currently being built:
+  `CONTEXT.md` (settled decisions), `COLOR_BIBLE.md` (the palette),
+  `CORE_LOOP.md` (what the player does), **`ROADMAP.md`** (the whole game as
+  stages that stack), `BUDGET.md`, `CREDITS.md`, `STATE.md`.
 - `game/<slug>/` — the Godot project itself.
 
 ## Toolchain
@@ -35,6 +38,7 @@ python gsd-gd/bin/gd.py <verb>
 | `state [k] [v]` | read/write `.planning/STATE.md` |
 | `phase new\|list\|current` | phase directories |
 | `palette` | regenerate `res://scripts/palette.gd` from the Color Bible |
+| `roadmap [status\|done <id>]` | **validate the stage roadmap** — coverage, stacking, placeholders |
 | `models` | show model routing per agent + flag config/frontmatter drift |
 | `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
 | `check [files]` | **GDScript gate** — engine type-check + Godot-3-ism scan |
@@ -113,12 +117,17 @@ These are enforced by tooling, not just convention. Do not work around them.
 7. **Shadows are rationed.** Budget in `gsd-gd/config.json`; enforced at runtime
    by `GDLightingRig.enforce_shadows()` and at gate time by `gd playtest`.
 8. **Log the licence when the asset lands**, not at ship time.
-9. **Model routing lives in `config.json` → `models`**, never hardcoded. Each
+9. **The roadmap is a validated contract, not a document.** `.planning/ROADMAP.md`
+   breaks the whole game into stages that each end in something **playable**, and
+   `gd roadmap` fails on a stage that depends on a later stage, a Core Loop beat
+   with no stage assigned, or a placeholder with no stage that replaces it. A
+   stage that ends "the kit is done, nothing uses it" has not stacked — rework it.
+10. **Model routing lives in `config.json` → `models`**, never hardcoded. Each
    agent's starting model is stored with the reason it was chosen, and
    `gd models` flags drift against the agent frontmatter. `gd run` owns the
    escalation ladder (3 attempts per tier, then climb) — no agent may grant
    itself a fourth attempt or pick its own model.
-10. **No GDScript from memory.** Most training data is Godot 3; Godot 4 renamed,
+11. **No GDScript from memory.** Most training data is Godot 3; Godot 4 renamed,
    moved and deleted much of the API, so recalled GDScript looks right and fails
    at runtime. Before writing engine code, look every type up in the local
    version-exact reference (`gddoc`, or the `godot-api` skill). Use static types
@@ -145,4 +154,5 @@ These are enforced by tooling, not just convention. Do not work around them.
 | Generator craft, kits, foliage, decimation | `gsd-gd/references/blender-patterns.md` |
 | Writing playtest plans and reading verdicts | `gsd-gd/references/playtest-recipes.md` |
 | Godot 4.7 API discipline and the 3.x→4.x traps | `gsd-gd/references/gdscript-4x.md` |
+| Breaking a whole game into stackable stages | `gsd-gd/references/decomposition.md` |
 | Which model does which job | `gsd-gd/references/model-routing.md` |

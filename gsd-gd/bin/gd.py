@@ -340,6 +340,194 @@ def agent_model(agent: str) -> str:
     return m
 
 
+# --------------------------------------------------------------------------- #
+# roadmap  (the whole game, as stages that stack)
+# --------------------------------------------------------------------------- #
+PLACEHOLDER_RE = re.compile(r"[<>]|^-$|^$|^TBD$|^\.\.\.$", re.I)
+
+
+def _unfilled(cell: str) -> bool:
+    """True if a table cell is still template boilerplate."""
+    c = (cell or "").strip()
+    return bool(re.search(r"[<>]", c)) or c in ("", "-", "TBD", "...", "…")
+
+
+def parse_roadmap(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+    stages = []
+    for row in _rows(text, "#"):
+        sid = (row.get("#") or "").strip()
+        if not re.fullmatch(r"\d+", sid):
+            continue
+        stages.append({
+            "id": "%02d" % int(sid),
+            "stage": row.get("stage", ""),
+            "playable": row.get("playable at the end", ""),
+            "depends": [d.strip() for d in re.split(r"[,\s]+", row.get("depends on", ""))
+                        if d.strip() and d.strip() != "-"],
+            "gate": row.get("gate", ""),
+            "status": (row.get("status") or "planned").strip().lower(),
+        })
+    coverage = [{"element": r.get("element", ""), "stage": (r.get("delivered by stage") or "").strip()}
+                for r in _rows(text, "element")]
+    placeholders = [{"placeholder": r.get("placeholder", ""),
+                     "stands_for": r.get("stands in for", ""),
+                     "stage": (r.get("replaced by stage") or "").strip()}
+                    for r in _rows(text, "placeholder")]
+    doors = [{"door": r.get("door", ""), "stage": (r.get("taken in stage") or "").strip(),
+              "decided": r.get("decided", "")} for r in _rows(text, "door")]
+    m = re.search(r"^-\s+end state:\s*(.+)$", text, re.M)
+    cur = re.search(r"^-\s+current stage:\s*(.+)$", text, re.M)
+    return {"stages": stages, "coverage": coverage, "placeholders": placeholders,
+            "doors": doors, "end_state": (m.group(1).strip() if m else ""),
+            "current": (cur.group(1).strip() if cur else "")}
+
+
+def core_loop_beats() -> list:
+    """Filled beat rows from CORE_LOOP.md's loop table."""
+    p = PLANNING / "CORE_LOOP.md"
+    if not p.exists():
+        return []
+    out = []
+    for row in _rows(p.read_text(encoding="utf-8"), "beat"):
+        b = (row.get("beat") or "").strip()
+        action = (row.get("player action") or "").strip()
+        if re.fullmatch(r"\d+", b) and action and not _unfilled(action):
+            out.append(b)
+    return out
+
+
+def cmd_roadmap(a) -> int:
+    path = PLANNING / "ROADMAP.md"
+    if not path.exists():
+        die("no .planning/ROADMAP.md - run /gd:new")
+    rm = parse_roadmap(path)
+    ids = [s["id"] for s in rm["stages"]]
+
+    if a.action == "done":
+        if not a.stage:
+            die("`gd roadmap done <stage id>`")
+        sid = "%02d" % int(a.stage) if str(a.stage).isdigit() else str(a.stage)
+        if sid not in ids:
+            die("no stage " + sid + " in ROADMAP.md")
+        text = path.read_text(encoding="utf-8")
+        # Rewrite that stage's status cell, and advance `current stage`.
+        def fix(mo):
+            cells = mo.group(0).strip().strip("|").split("|")
+            if cells[0].strip().lstrip("0") == sid.lstrip("0"):
+                cells[-1] = " done "
+                return "|" + "|".join(cells) + "|"
+            return mo.group(0)
+        text = re.sub(r"^\|.*\|$", fix, text, flags=re.M)
+        nxt = next((i for i in ids if i > sid), sid)
+        text = re.sub(r"^(-\s+current stage:).*$", r"\1 " + nxt, text, count=1, flags=re.M)
+        path.write_text(text, encoding="utf-8")
+        emit("roadmap", {"ok": True, "action": "done", "stage": sid, "current": nxt})
+        return 0
+
+    # ---- validate -------------------------------------------------------- #
+    errors, warnings = [], []
+    if not rm["stages"]:
+        errors.append("no stage rows - the Stages table is still empty")
+    if _unfilled(rm["end_state"]):
+        errors.append("`end state` is not filled in - the roadmap has no destination")
+
+    seen = set()
+    for i, s in enumerate(rm["stages"]):
+        tag = "stage " + s["id"]
+        if s["id"] in seen:
+            errors.append(tag + ": duplicate id")
+        seen.add(s["id"])
+        # One error per stage, not one per field - a stage that is wholly
+        # unfilled would otherwise produce three lines and bury everything else.
+        unfilled = [("playable at the end" if f == "playable" else f)
+                    for f in ("stage", "playable", "gate") if _unfilled(s[f])]
+        if unfilled:
+            errors.append("%s: still a placeholder (%s)" % (tag, ", ".join(unfilled)))
+        if s["status"] not in ("planned", "active", "done"):
+            warnings.append(tag + ": unknown status '" + s["status"] + "'")
+        for d in s["depends"]:
+            dd = "%02d" % int(d) if d.isdigit() else d
+            if dd not in ids:
+                errors.append(tag + ": depends on '" + d + "', which is not a stage")
+            elif dd >= s["id"]:
+                errors.append(tag + ": depends on '" + dd + "', which is not an earlier stage "
+                              "- stages must stack forward")
+
+    # Coverage: every Core Loop beat, and no dangling stage references.
+    beats = core_loop_beats()
+    cov_text = " ".join(c["element"].lower() for c in rm["coverage"])
+    for b in beats:
+        if not re.search(r"beat\s*" + re.escape(b) + r"\b", cov_text):
+            errors.append("coverage: Core Loop beat %s has no row - that beat of the "
+                          "loop is not assigned to any stage" % b)
+    for c in rm["coverage"]:
+        if _unfilled(c["element"]):
+            continue
+        if _unfilled(c["stage"]):
+            errors.append("coverage: '%s' names no stage - a hole in the plan"
+                          % c["element"][:60])
+        else:
+            sid = "%02d" % int(c["stage"]) if c["stage"].isdigit() else c["stage"]
+            if sid not in ids:
+                errors.append("coverage: '%s' points at stage '%s', which does not exist"
+                              % (c["element"][:40], c["stage"]))
+    if not beats:
+        warnings.append("CORE_LOOP.md has no filled beat rows yet, so coverage of the "
+                        "loop cannot be checked")
+
+    # Placeholder ledger: everything fake must have a stage that makes it real.
+    for ph in rm["placeholders"]:
+        if _unfilled(ph["placeholder"]):
+            continue
+        if _unfilled(ph["stage"]):
+            errors.append("placeholder '%s' names no replacing stage - it will ship"
+                          % ph["placeholder"][:40])
+        else:
+            sid = "%02d" % int(ph["stage"]) if ph["stage"].isdigit() else ph["stage"]
+            if sid not in ids:
+                errors.append("placeholder '%s' points at stage '%s', which does not exist"
+                              % (ph["placeholder"][:40], ph["stage"]))
+
+    for d in rm["doors"]:
+        if _unfilled(d["door"]):
+            continue
+        if _unfilled(d["stage"]):
+            warnings.append("one-way door '%s' is not assigned to a stage" % d["door"][:50])
+
+    done = [s for s in rm["stages"] if s["status"] == "done"]
+    ok = not errors
+    emit("roadmap", {"ok": ok, "action": "validate", "stages": len(rm["stages"]),
+                     "done": len(done), "current": rm["current"],
+                     "coverage_rows": len([c for c in rm["coverage"] if not _unfilled(c["element"])]),
+                     "core_loop_beats": beats,
+                     "placeholders_open": len([p for p in rm["placeholders"]
+                                               if not _unfilled(p["placeholder"])]),
+                     "errors": errors, "warnings": warnings})
+
+    print("  end state   " + (rm["end_state"][:100] or "(not set)"))
+    print("  progress    %d / %d stages done, current %s"
+          % (len(done), len(rm["stages"]), rm["current"] or "?"))
+    for s in rm["stages"]:
+        mark = {"done": "x", "active": ">", "planned": " "}.get(s["status"], "?")
+        print("  [%s] %s %-24s %s" % (mark, s["id"], s["stage"][:24], s["playable"][:60]))
+    if a.action == "status":
+        return 0
+    for w in warnings[:6]:
+        print("  [warn] " + w)
+    for e in errors[:14]:
+        print("  [FAIL] " + e)
+    if len(errors) > 14:
+        print("  ... and %d more (the full list is in the GDROADMAP json line)"
+              % (len(errors) - 14))
+    if ok:
+        print("\n  roadmap valid: every stage stacks forward, the loop is fully covered, "
+              "and every placeholder has a stage that replaces it.")
+    else:
+        print("\n  Fix ROADMAP.md (see gsd-gd/references/decomposition.md), then re-run.")
+    return 0 if ok else 1
+
+
 def cmd_models(a) -> int:
     """Show the routing table, and flag drift.
 
@@ -846,6 +1034,16 @@ def cmd_check(a) -> int:
     if not targets:
         die("no .gd files to check")
 
+    # A never-imported project has no global class cache, so every reference to
+    # a `class_name` in another file reads as "Identifier not declared" - a false
+    # failure on correct code, which is the one thing a gate must never do.
+    # Import once to populate it.
+    cache = proj / ".godot" / "global_script_class_cache.cfg"
+    imported_first = False
+    if not cache.exists():
+        run([godot_bin(), "--headless", "--path", str(proj), "--import"], timeout=1200)
+        imported_first = cache.exists()
+
     results = []
     for p in targets:
         try:
@@ -873,6 +1071,7 @@ def cmd_check(a) -> int:
 
     ok = all(x["ok"] for x in results)
     emit("check", {"ok": ok, "files": len(results),
+                   "imported_first": imported_first,
                    "failed": [x["file"] for x in results if not x["ok"]],
                    "results": results})
     for x in results:
@@ -1155,6 +1354,12 @@ def main(argv=None) -> int:
     p.add_argument("--project")
     p.add_argument("--timeout", type=int, default=900)
     p.set_defaults(fn=cmd_godot)
+
+    p = sub.add_parser("roadmap", help="validate / show the stage roadmap")
+    p.add_argument("action", nargs="?", default="validate",
+                   choices=["validate", "status", "done"])
+    p.add_argument("stage", nargs="?", help="stage id, for `done`")
+    p.set_defaults(fn=cmd_roadmap)
 
     sub.add_parser("models", help="show model routing, and flag config/frontmatter drift"
                    ).set_defaults(fn=cmd_models)

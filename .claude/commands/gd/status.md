@@ -11,6 +11,7 @@ Gather, then summarise. Do not editorialise; report what the tools say.
 python gsd-gd/bin/gd.py doctor
 python gsd-gd/bin/gd.py state
 python gsd-gd/bin/gd.py phase list
+python gsd-gd/bin/gd.py roadmap status
 python gsd-gd/bin/gd.py run status
 python gsd-gd/bin/gd.py models
 python gsd-gd/bin/gd.py check
@@ -33,6 +34,7 @@ A short table, in this order:
 | | |
 |---|---|
 | beat | from STATE.md |
+| roadmap | stages done / total, current stage, and what it delivers |
 | phase | current phase, jobs done / total, driver status |
 | driver | what `run next` says, and any open one-way door |
 | escalations | jobs not on their starting model, and how many attempts they have burned |

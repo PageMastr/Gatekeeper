@@ -35,7 +35,8 @@ python gsd-gd/bin/gd.py run next 2>/dev/null
 | a budget is failing | `/gd:perf` |
 | an asset came back weak twice | `/gd:gauntlet` on it - a third guess is not a plan |
 | phase gate green | `/gd:playtest` for the human pass, then `/gd:ship` |
-| phase shipped | `/gd:plan` for the next milestone on the roadmap |
+| phase shipped | `/gd:plan "<next stage>"` - take it straight off `gd roadmap status` |
+| `gd roadmap` reports errors | fix ROADMAP.md first; a hole there means part of the game is not assigned to any stage |
 
 State the next action as a command, with one sentence of why. If two rows are
 arguably live, say which you chose and what you are deferring - do not present
