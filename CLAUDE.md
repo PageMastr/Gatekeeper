@@ -154,6 +154,16 @@ These are enforced by tooling, not just convention. Do not work around them.
 - `.gd_out/` is generated output. Not committed, safe to delete. Graded
   verdicts are archived per attempt to `<phase>/verdicts/`.
 - **Never type a timestamp.** `gd now`. Agents invent plausible ones.
+**Never edit the installed system.** `~/.claude/gsd-gd/` is shared by every
+game on this machine and is not under version control. Editing the harness,
+templates or CLI there changes how every other project is graded, with no
+record. Observed: one game wrote two of its own lighting presets into the shared
+rig, and `install_harness()` then copied them into three unrelated games - two
+referencing a palette swatch those games do not define.
+
+If a harness change is genuinely needed, say so and stop. It is a change to the
+system, reviewed once and upstreamed into the repo - not a file edit.
+
 - **An implementing agent never writes its own gate.** `gd-playtester` authors
   every playtest plan, in an earlier wave. A test written by the thing it
   certifies is self-grading — Law 6, one level up.

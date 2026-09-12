@@ -7,7 +7,7 @@ we can improve the base system tomorrow. One entry per loop, appended.
 while managing air, heat, and a crew that's losing faith."* Kicked off with
 `/gd:new`, interview completed by the user.
 
-**Observer cadence:** hourly at :47 (cron `f731ad41`). 45m was rounded up —
+**Observer cadence:** hourly at :47 (cron `70fe3521`). 45m was rounded up —
 `*/45` fires at :00 then :45, giving alternating 45/15-minute gaps.
 
 **Targets** (widened at loop 3, from one game to three — cross-game repetition is
@@ -18,6 +18,7 @@ what separates a system fault from one agent's bad day):
 | `D:/TestGame` | Ringfall — rebuild a shattered ring station, manage air, heat and crew faith |
 | `D:/testgame2` | The Last Lamp |
 | `D:/testgame3` | Henhouse |
+| `D:/testgame4` | Paper Boat — kicked off *after* the 16 fixes, so it validates them |
 
 ## Methodology caveat, learned the hard way in loop 1
 
@@ -507,3 +508,128 @@ copy — they were kicked off before these fixes. So:
   for a reason nobody intended.
 - A fresh `/gd:new` in a fourth workspace would be the way to test the fixes
   end to end, if that is wanted.
+
+---
+
+# Loop 4 — 19:46Z · the shared-harness incident
+
+**Scope widened again** to four games; `D:/testgame4` (paper-boat) was kicked off
+after the 16 fixes. Cron re-created as **`70fe3521`**, and it now includes a
+harness-diff step, because of what this loop found.
+
+## The incident
+
+A game edited the **shared installed harness** at `~/.claude/gsd-gd/harness/
+godot/gd_lighting_rig.gd`, and `install_harness()` — which recopies on every
+`gd playtest` — then propagated it into every other project on the machine.
+
+Authored by **the-last-lamp** (`330a1f5 job 04: cabin_interior and
+nebula_exterior lighting presets`). Two presets, plus twelve new per-preset keys
+and a palette-key indirection. Result:
+
+| game | had the presets | has the palette swatch they need |
+|---|---|---|
+| Ringfall | yes | **no** |
+| the-last-lamp | yes | yes |
+| henhouse | yes | **no** |
+| paper-boat | yes | **no** |
+
+**Three of four games were carrying presets that reference `sky_nebula_far` /
+`sky_nebula_near`, swatches only the-last-lamp defines.** Not cosmetic — applying
+`nebula_exterior` in henhouse resolves nothing. And the install root is not under
+version control, so none of it was recorded anywhere.
+
+### I made the same mistake, in the other direction
+
+At 19:32 I installed the 16 fixes into the same shared root **while three agents
+were mid-build**. Their grader changed under them. Ringfall's job 06 then
+committed a 101-line `gd_playtest.gd` diff as part of an unrelated 23-file
+commit — it was the recopy of *my* `via` code, swept up incidentally. Same hole,
+different culprit: I hot-patched a live shared dependency.
+
+### Attribution was wrong three times, and that is the finding
+
+I first blamed Ringfall (its copy was byte-identical to canonical — but identical
+means *most recent recopy*, not *author*). Then I read a `git log` that listed
+two harness commits and my own echo label said "empty", so I concluded no harness
+edit existed. Only the palette keys settled it.
+
+**A shared mutable system with no version control makes authorship unknowable**,
+even under deliberate forensics. That is worse than the leak itself, and it is
+the reason the fix below is about *recording* as much as preventing.
+
+## Was the change worth keeping?
+
+Partly. Judged on its merits:
+
+- **Keep the idea.** The rig hardcoded `Color(...)` literals everywhere, which
+  quietly breaks Law 8 in the one place a fourth shade of grey is least visible.
+  `"sun_color_key": "accent_warm"` resolving against the project `Palette` is
+  correct, and it is our own law applied to our own blind spot.
+- **Keep the sky and fog parameters.** `sky_curve`, `sky_top/ground_energy`,
+  `fog_sky_affect`, `fog_light_energy` are real Godot 4.7 properties (verified
+  against the local index) and the rig exposed none of them. Two games reached
+  for them independently, which is the signal.
+- **Reject the two presets.** Game-specific, and broken everywhere else.
+- **Reject the keys as written.** `_refresh()` never read them — the file's own
+  comment admits *"Keys `_refresh()` does not read … are applied by the scene"*.
+  Twelve keys of dead data in a grader is a trap: it reads as configuration and
+  does nothing.
+
+**Upstreamed properly:** all nine optional keys, applied for real in `_refresh()`
+via `palette_color()`, which soft-resolves against `res://scripts/palette.gd` and
+falls back to the literal when a key or the Palette is absent — so the harness
+still boots in a scaffold with no Color Bible filled in. Type-checks clean
+against the engine. No project presets.
+
+## New faults, and the fixes shipped this loop
+
+### 17. Agents could edit the shared installed system
+**Fix:** `~/.claude/gsd-gd/` is now declared read-only to every agent in
+`CLAUDE.md`, in `gd-mechanics`, and as **Law 6b** — *never modify the instrument
+that grades you*. `/gd:light` now says game presets go in the project, never in
+the shared rig, and explains why with this incident.
+
+### 18. An unreviewed grader, with no record of which grader graded
+The real risk is not malice, it is that a subtly wrong check makes future gates
+pass that should not — and every verdict after it is worth less.
+
+**Fixes, all verified:**
+- `gd harness --check` diffs a project's harness against canonical and exits 1
+  on drift. Tested against a deliberately tampered `gd_playtest.gd` (edited so
+  every `moved` check passes): `[DRIFT] gd_playtest.gd differs from canonical`.
+- `gd doctor` fails on it: `[FAIL] harness  local edits to the grader`.
+- **Every verdict now records `harness_hash`**, plus `harness_was_modified` when
+  the project harness had drifted before the run. A verdict is only as
+  trustworthy as the harness that produced it.
+- `install_harness()` no longer silently clobbers a local edit — it backs the
+  file up as `<name>.local` and reports `overwrote_local_edits`. That protects
+  a genuine local fix from being destroyed by an install, which is exactly what
+  my 19:32 install did.
+
+### Leak cleanup
+Ringfall, henhouse and paper-boat restored to the canonical harness (their local
+rigs preserved as `.local`). the-last-lamp keeps its own — it is mid-build and
+its presets are legitimately its — but it now reports as **drifted** rather than
+silently sharing.
+
+I also started writing a project-local subclass to hold the-last-lamp's presets
+properly, then deleted it: it referenced a `_project_preset` member the base rig
+does not have and would have failed `gd check` in a live project. Injecting
+untested code into someone's mid-build workspace is worse than the leak. A real
+project-preset extension point is worth designing, but not at 20:00 into a
+running build — **carried forward as the top open item**.
+
+## Carried forward
+
+1. **Design a project-preset extension point** for `GDLightingRig` so a game can
+   add presets without touching the shared rig. Candidate: the rig reads an
+   optional `res://scripts/project_presets.gd` and merges its `PRESETS`.
+2. **Version the install.** `harness_hash` covers the harness; `gd.py`,
+   templates and references are still unversioned shared state. A `gd version`
+   recording an install fingerprint would let a verdict name its whole toolchain.
+3. **Never hot-patch a live shared install again.** Either install to a
+   versioned directory and let projects pin, or stop the world first.
+4. paper-boat is the only game running fully post-fix — next loop, check whether
+   `--smoke`, `--lint`, `via` and the gates-first job actually show up in its
+   plan and artefacts.

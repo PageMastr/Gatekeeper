@@ -196,6 +196,13 @@ def cmd_doctor(a) -> int:
     proj = locate_project()
     checks.append({"check": "godot_project", "ok": proj is not None,
                    "detail": str(proj) if proj else "none yet - run `gd init <name>`"})
+    if proj:
+        dr = harness_drift(proj)
+        mod = dr["modified"] + dr["missing"]
+        check("harness", not mod,
+              ("canonical=%s project=%s" % (dr["canonical"], dr["project"]))
+              if not mod else
+              ("local edits to the grader: %s - run `gd harness --check`" % ", ".join(mod)))
 
     soft = ("planning_dir", "godot_project")
     ok = all(x["ok"] for x in checks if x["check"] not in soft)
@@ -267,7 +274,7 @@ def cmd_init(a) -> int:
         dest.write_text(tpl(t).replace("{{NAME}}", name).replace("{{SLUG}}", slug),
                         encoding="utf-8")
 
-    installed = install_harness(proj)
+    installed = install_harness(proj)["copied"]
     cmd_palette(argparse.Namespace(project=str(proj)))
     emit("init", {"ok": True, "name": name, "slug": slug, "project": str(proj),
                   "planning": str(PLANNING), "harness": installed,
@@ -275,22 +282,103 @@ def cmd_init(a) -> int:
     return 0
 
 
-def install_harness(proj: Path):
+def harness_hash(d: Path) -> str:
+    """Fingerprint of a harness directory - which grader is in play."""
+    import hashlib
+    h = hashlib.sha256()
+    for f in sorted((d).glob("*")):
+        if f.is_file() and f.suffix in (".gd", ".tscn"):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
+def harness_drift(proj: Path) -> dict:
+    """Compare a project's harness against the installed canonical one.
+
+    This exists because of an observed incident: one game's agent edited the
+    *shared* harness under the install root, and because `install_harness()`
+    recopies on every playtest, its game-specific lighting presets propagated
+    into three other games - two of them referencing a palette swatch those
+    games do not define. Nothing recorded it, because the install root is not
+    under version control.
+
+    A harness is the instrument that grades the work. Drift in it must be
+    visible, not silent.
+    """
+    src = SYS_DIR / "harness" / "godot"
+    dst = proj / "addons" / "gd_harness"
+    out = {"canonical": harness_hash(src), "project": None,
+           "modified": [], "missing": [], "extra": []}
+    if not dst.is_dir():
+        return out
+    out["project"] = harness_hash(dst)
+    for f in sorted(src.glob("*")):
+        if not f.is_file():
+            continue
+        p = dst / f.name
+        if not p.exists():
+            out["missing"].append(f.name)
+        elif p.read_bytes() != f.read_bytes():
+            out["modified"].append(f.name)
+    names = {f.name for f in src.glob("*") if f.is_file()}
+    out["extra"] = sorted(p.name for p in dst.glob("*")
+                          if p.is_file() and p.name not in names
+                          and not p.name.endswith(".uid"))
+    return out
+
+
+def install_harness(proj: Path, force: bool = False):
+    """Copy the canonical harness into a project.
+
+    Never silently overwrites a locally modified harness file - a local edit is
+    either a fix worth upstreaming or a builder tampering with its own grader,
+    and both deserve to be seen. Modified files are backed up alongside and
+    named in the return value.
+    """
     src = SYS_DIR / "harness" / "godot"
     dst = proj / "addons" / "gd_harness"
     dst.mkdir(parents=True, exist_ok=True)
-    copied = []
+    copied, preserved = [], []
     for f in sorted(src.glob("*")):
-        if f.is_file():
-            shutil.copy2(f, dst / f.name)
-            copied.append(f.name)
-    return copied
+        if not f.is_file():
+            continue
+        target = dst / f.name
+        if target.exists() and target.read_bytes() != f.read_bytes():
+            if not force:
+                backup = dst / (f.name + ".local")
+                shutil.copy2(target, backup)
+                preserved.append(f.name)
+        shutil.copy2(f, target)
+        copied.append(f.name)
+    return {"copied": copied, "overwrote_local_edits": preserved,
+            "hash": harness_hash(src)}
 
 
 def cmd_harness(a) -> int:
     proj = Path(a.project).resolve() if a.project else find_project()
-    files = install_harness(proj)
-    emit("harness", {"ok": True, "project": str(proj), "installed": files})
+    drift = harness_drift(proj)
+    if a.check:
+        ok = not (drift["modified"] or drift["missing"])
+        emit("harness", {"ok": ok, "action": "check", "project": str(proj), **drift})
+        print("  canonical %s" % drift["canonical"])
+        print("  project   %s" % (drift["project"] or "(not installed)"))
+        for f in drift["modified"]:
+            print("  [DRIFT] %s differs from canonical - a local edit to the "
+                  "instrument that grades this project" % f)
+        for f in drift["missing"]:
+            print("  [MISSING] " + f)
+        if ok and drift["project"]:
+            print("  harness matches canonical")
+        if drift["modified"]:
+            print("")
+            print("  If the edit is a real improvement, upstream it to")
+            print("  %s and reinstall - do not leave it local." % (SYS_DIR / "harness" / "godot"))
+        return 0 if ok else 1
+    res = install_harness(proj, force=a.force)
+    emit("harness", {"ok": True, "project": str(proj), **res})
+    for f in res["overwrote_local_edits"]:
+        print("  [warn] %s had local edits; backed up as %s.local" % (f, f))
     return 0
 
 
@@ -1353,7 +1441,8 @@ def cmd_playtest(a) -> int:
             print("  plan ok: " + plan_p.name)
         return 0 if res["ok"] else 1
 
-    install_harness(proj)
+    drift_before = harness_drift(proj)
+    harness_info = install_harness(proj)
 
     stem = plan_p.stem
     outdir = Path(a.out).resolve() if a.out else (proj / ".gd_out" / stem)
@@ -1408,6 +1497,11 @@ def cmd_playtest(a) -> int:
 
     verdict["plan"] = plan_p.name
     verdict["seconds"] = round(time.time() - t0, 2)
+    # Which grader graded this. A verdict is only as trustworthy as the harness
+    # that produced it, and that harness turned out to be mutable.
+    verdict["harness_hash"] = harness_info["hash"]
+    if drift_before["modified"]:
+        verdict["harness_was_modified"] = drift_before["modified"]
     verdict["shot_files"] = sorted(p.name for p in (outdir / "shots").glob("*.png"))
     verdict["shots_dir"] = str(outdir / "shots")
 
@@ -1580,8 +1674,12 @@ def main(argv=None) -> int:
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_init)
 
-    p = sub.add_parser("harness", help="(re)install the Godot playtest harness into a project")
+    p = sub.add_parser("harness", help="(re)install the harness, or --check it for drift")
     p.add_argument("--project")
+    p.add_argument("--check", action="store_true",
+                   help="report drift between the project harness and canonical; do not write")
+    p.add_argument("--force", action="store_true",
+                   help="overwrite local harness edits without backing them up")
     p.set_defaults(fn=cmd_harness)
 
     p = sub.add_parser("state", help="read/write .planning/STATE.md")

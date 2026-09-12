@@ -14,6 +14,20 @@ class_name GDLightingRig
 ##     its own point of view; four of them cost four extra scene draws. The
 ##     `shadow_budget` is enforced, not advisory.
 
+## Every preset needs the ten required keys below. Nine more are optional and
+## defaulted, so an existing preset keeps working untouched:
+##
+##   sun_color_key / fog_color_key / ambient_color_key  - Color Bible keys,
+##       resolved against the project Palette; they override the literal
+##   sky_top_key / sky_horizon_key / sky_ground_key     - sky gradient colours
+##   sky_curve, sky_top_energy, sky_ground_energy       - sky gradient shape
+##   fog_sky_affect, fog_light_energy                   - fog against the sky
+##   sky_ambient_contribution                           - how much sky lights the scene
+##
+## PROJECT-SPECIFIC PRESETS DO NOT BELONG HERE. Add them to a subclass or to the
+## project's own scene. A preset naming a palette key that only one game defines
+## is broken in every other game - observed: two presets referencing
+## `sky_nebula_far` leaked into three games that have no such swatch.
 const PRESETS: Dictionary = {
 	"midday": {
 		"sun_energy": 1.6, "sun_color": Color(1.0, 0.98, 0.94), "sun_angle": Vector2(-55, 35),
@@ -143,13 +157,42 @@ func apply_preset(preset_name: String) -> void:
 		_refresh()
 
 
+## Optional per-preset keys, all defaulted, all applied below. A preset may name
+## Color Bible keys instead of literals - `"sun_color_key": "accent_warm"` - and
+## the rig resolves them against the project's generated `Palette`. That closes a
+## real hole: a rig full of hardcoded `Color("d9953a")` literals quietly breaks
+## Law 8, because the lighting is the one place a fourth shade of grey is least
+## visible and most damaging.
+##
+## Resolution is soft. An unknown key, or a project with no Palette yet, falls
+## back to the literal already in the preset rather than asserting - the harness
+## must boot in a scaffold that has no Color Bible filled in.
+const _PALETTE_PATH := "res://scripts/palette.gd"
+static var _palette_colors: Dictionary = {}
+static var _palette_loaded := false
+
+
+static func palette_color(key: String, fallback: Color) -> Color:
+	if key == "":
+		return fallback
+	if not _palette_loaded:
+		_palette_loaded = true
+		if ResourceLoader.exists(_PALETTE_PATH):
+			var scr = load(_PALETTE_PATH)
+			if scr != null and "COLORS" in scr:
+				_palette_colors = scr.COLORS
+	return _palette_colors.get(key, fallback)
+
+
 func _refresh() -> void:
 	if not PRESETS.has(preset):
 		return
 	var p: Dictionary = PRESETS[preset]
+	var sun_col: Color = palette_color(str(p.get("sun_color_key", "")), p["sun_color"])
+	var fog_col: Color = palette_color(str(p.get("fog_color_key", "")), p["fog_color"])
 	if sun:
 		sun.light_energy = p["sun_energy"]
-		sun.light_color = p["sun_color"]
+		sun.light_color = sun_col
 		sun.shadow_enabled = p["sun_shadow"]
 		var a: Vector2 = p["sun_angle"]
 		sun.rotation_degrees = Vector3(a.x, a.y, 0.0)
@@ -160,12 +203,32 @@ func _refresh() -> void:
 		env.background_energy_multiplier = p["sky_energy"]
 		env.ambient_light_source = (Environment.AMBIENT_SOURCE_SKY if p["sky_energy"] > 0.0
 				else Environment.AMBIENT_SOURCE_COLOR)
-		if p["sky_energy"] <= 0.0:
-			env.ambient_light_color = p["fog_color"]
+		# Ambient colour: an explicit key wins, else the fog colour, which is the
+		# convention the built-in presets already follow.
+		env.ambient_light_color = palette_color(
+				str(p.get("ambient_color_key", "")), fog_col)
+		env.ambient_light_sky_contribution = float(p.get("sky_ambient_contribution", 1.0))
 		env.fog_enabled = p["fog"]
 		env.fog_density = p["fog_density"]
-		env.fog_light_color = p["fog_color"]
+		env.fog_light_color = fog_col
+		env.fog_light_energy = float(p.get("fog_light_energy", 1.0))
+		env.fog_sky_affect = float(p.get("fog_sky_affect", 1.0))
 		env.tonemap_exposure = p["exposure"]
+		# Sky gradient. A bright outdoor game and a nebula both need this and the
+		# rig used to expose neither, which is why two projects reached for it.
+		var sky_mat := env.sky.sky_material as ProceduralSkyMaterial if env.sky else null
+		if sky_mat != null:
+			sky_mat.sky_top_color = palette_color(
+					str(p.get("sky_top_key", "")), sky_mat.sky_top_color)
+			sky_mat.sky_horizon_color = palette_color(
+					str(p.get("sky_horizon_key", "")), sky_mat.sky_horizon_color)
+			sky_mat.ground_bottom_color = palette_color(
+					str(p.get("sky_ground_key", "")), sky_mat.ground_bottom_color)
+			sky_mat.ground_horizon_color = palette_color(
+					str(p.get("sky_horizon_key", "")), sky_mat.ground_horizon_color)
+			sky_mat.sky_curve = float(p.get("sky_curve", sky_mat.sky_curve))
+			sky_mat.sky_energy_multiplier = float(p.get("sky_top_energy", 1.0))
+			sky_mat.ground_energy_multiplier = float(p.get("sky_ground_energy", 1.0))
 	_flicker = float(p.get("flicker", 0.0))
 
 

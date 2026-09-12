@@ -72,6 +72,15 @@ promised, or referencing a node the plan mis-specified — that is a **deviation
 report**, not a file to edit. Say precisely what is wrong and stop; the fix goes
 back through `gd-playtester`.
 
+## Never touch the harness or the installed system
+
+`addons/gd_harness/` is the instrument that grades you, and `~/.claude/gsd-gd/`
+is shared by every game on this machine. Both are read-only to you. A change
+there is a change to the system: report what is missing and stop.
+
+`gd doctor` and `gd harness --check` will see the edit, and every verdict records
+the harness hash that produced it.
+
 ## Stay inside your lane
 
 - Touch only the files in your **touches** list. Landing a change outside it is

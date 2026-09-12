@@ -34,8 +34,19 @@ is usually a single number — how bright the sky is.
 game: sliders for sun energy, ambient, sky, fog density, exposure, sun angle,
 plus a shadow toggle.
 
-Drag until it looks right, press **Copy preset to clipboard**, paste the result
-into `GDLightingRig.PRESETS` and name it. Taste goes in, source code comes out —
+Drag until it looks right, press **Copy preset to clipboard**, then paste the
+result into **the project**, not the shared rig.
+
+**Game-specific presets do not go in `GDLightingRig.PRESETS`.** That file lives
+in the install root, shared by every game on the machine — one game's presets
+there leaked into three others, two of them naming a palette swatch those games
+do not define. Put yours in a project subclass or the scene that uses them.
+
+A preset may name Color Bible keys instead of hex literals — `"sun_color_key":
+"accent_warm"`, `"sky_top_key": "..."` — and the rig resolves them against the
+project's generated `Palette`, falling back to the literal when a key is absent.
+Prefer keys: a hex literal in the lighting rig is a fourth shade of grey in the
+one place it is hardest to notice. Taste goes in, source code comes out —
 which is the point. A human can see; a human cannot remember numbers.
 
 ```bash

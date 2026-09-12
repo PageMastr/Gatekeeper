@@ -51,6 +51,23 @@ it intended, so it sees what it intended. Screenshots go to `gd-critic`, which
 has never seen the code. This separation is the single highest-value structure
 in the system; do not collapse it to save a session.
 
+## 6b. Never modify the instrument that grades you
+
+Law 6 says a builder does not judge its own work. The same applies to the
+*measuring device*: the playtest harness, the gate plans, and the installed
+system under `~/.claude/gsd-gd/`.
+
+The risk is not malice, it is an **unreviewed grader**. A subtly wrong change to
+a check makes future gates pass that should not, and every verdict after it is
+worth less. Observed twice: a builder committing a harness it had not authored,
+and a game writing its own lighting presets into the shared rig, from where they
+propagated into three unrelated games.
+
+So: the harness is read-only to every agent. `gd harness --check` reports drift,
+`gd doctor` fails on it, and every verdict records the hash of the harness that
+produced it. A needed improvement is proposed, reviewed, and upstreamed into the
+repo - never edited in place.
+
 ## 7. Assets are scripts, not files
 
 Blender is driven headless by Python. The script is the source of truth; the
