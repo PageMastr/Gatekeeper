@@ -1238,3 +1238,114 @@ loop closed on its own, in under an hour, without me asking.
    its baseline. That is correct, but it means `doctor`-style green boards will
    show a red until each project re-records. Watch whether that reads as signal
    or as noise; if noise, it should warn rather than fail.
+
+---
+
+# Loop 9 — 22:00Z · the first complete greybox, and STATE was lying about it
+
+| game | jobs | passed | running | next action | verdicts archived | findings |
+|---|---|---|---|---|---|---|
+| Ringfall | 13 | **13** | 0 | `phase_gate` | 7 | 2 |
+| the-last-lamp | 7 | 4 | 0 | dispatch job 05 | 12 | 1 |
+| henhouse | 9 | 4 | 0 | dispatch job 07 | 9 | 1 |
+| paper-boat | 6 | 3 | **2** | **`in_flight`** | 5 | 3 |
+
+Two fixes visibly carrying load:
+
+- **paper-boat returns `in_flight`** — *"wave 3 job(s) already dispatched and not
+  yet recorded"*. Exactly the fault-9 fix doing its job: two concurrent jobs, and
+  the driver refuses to hand either to a second agent.
+- **33 verdicts archived** across the four, in a directory that was dead until
+  loop 4. `/gd:ship`'s retro now has a per-attempt history to read.
+
+the-last-lamp closed a gauntlet: *"gauntlet CLOSED: A ships; three checkpoints
+resolved"*.
+
+## Ringfall passed its phase gate — 52 minutes before I noticed
+
+`RUN.json` records it plainly:
+
+```json
+{"at": "2026-09-12T21:08:23Z", "ok": true, "failed": []}
+```
+
+**All five gates green** — `check`, `minute_one`, `loop_complete`,
+`can_lose_dawn`, `can_lose_abandoned`. That is the first complete greybox to go
+through the entire system: contracts → roadmap → 13 jobs in 6 waves → every job
+graded → the phase's own definition of done, measured.
+
+And it is correctly *stopped* there, waiting for a human, which is what
+`/gd:run` is supposed to do at a green phase gate.
+
+## 28 + 29 — STATE was stale, and in two different ways
+
+`last_verdict: none` in **all four** games, despite 33 archived verdicts and a
+green phase gate.
+
+**28. Nothing ever wrote `last_verdict`.** Two command docs mention setting it
+(`/gd:build`, `/gd:playtest`) and neither is the driver. `/gd:run` — the thing
+that actually grades every job — never touched it. A field in the template that
+no code writes is worse than no field: it reads as "no verdict yet" forever.
+
+**29. A green phase gate never reached STATE.** `run gate` set
+`RUN.json.status = gate_green` and stopped there. STATE — the file a resumed
+session trusts first — said `greybox_passed: no` with no indication that the
+gate had been cleared at all. Ringfall's greybox had been green for the better
+part of an hour and nothing outside `RUN.json` knew.
+
+**Fixed in the CLI, not in the docs**, because the docs were already right and
+were being skipped:
+
+- `gd run record` stamps `last_verdict: <phase> job NN pass|fail (<model>)`.
+- `gd run gate` stamps `last_verdict: <phase> N/M gates green` and
+  `phase_gate: green|red`.
+- New `phase_gate` field in the STATE template.
+
+**`greybox_passed` is deliberately still not automatic.** A green phase gate is
+necessary and not sufficient — Law 1 also requires a person to play it and
+answer *would I press start again?* Auto-setting it on a green gate would have
+been the easy fix and would have quietly deleted the most valuable gate in the
+system. `phase_gate: green` with `greybox_passed: no` is now the documented,
+correct state while waiting for the human, and the STATE template says who owns
+which field.
+
+Verified: a job record writes `01-greybox job 01 pass (opus)`; a green gate
+writes `phase_gate: green` and `01-greybox 2/2 gates green`; `greybox_passed`
+stays `no`.
+
+Backfilled all four live games from their own `RUN.json`, so STATE now says what
+happened:
+
+```
+TestGame    green | 01-greybox phase gate GREEN at 2026-09-12T21:08:23Z
+testgame2         | 01-greybox jobs 4/7 passed, gate not yet run
+testgame3         | 01-greybox jobs 4/9 passed, gate not yet run
+testgame4         | 01-greybox-loop jobs 3/6 passed, gate not yet run
+```
+
+## The pattern in these last three loops
+
+Every fault since loop 7 has been of one shape: **the system knew something and
+failed to write it where the next reader would look.**
+
+| loop | the system knew | where it failed to say so |
+|---|---|---|
+| 7 | scalar probe history existed frame by frame | nowhere — discarded, so `still` could not fail |
+| 8 | which toolchain produced a verdict | nowhere — no fingerprint |
+| 9 | the phase gate was green | only `RUN.json`, not STATE |
+
+Not logic errors. Plumbing between a component that measured something and the
+artefact someone reads later. Worth remembering when reviewing the rest: the
+question to ask is not "is this correct" but "where does this end up, and who
+reads it".
+
+## Carried forward
+
+1. **24** — `--smoke` still unexercised; every current kickoff predates it.
+2. Ringfall is one human playtest away from `greybox_passed: yes` and the first
+   `/gd:ship`. That will be the first exercise of the ship beat, the
+   `SYSTEM_FINDINGS` sweep, and the roadmap advancing to stage 02.
+3. `gd version` exits 1 once a project's baseline is older than the install. As
+   predicted in loop 8, all four now do — the fix is either to re-record on
+   purpose at phase boundaries, or to soften it to a warning outside `--check`.
+   Decide next loop rather than letting it become noise everyone ignores.

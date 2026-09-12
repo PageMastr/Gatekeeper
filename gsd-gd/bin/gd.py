@@ -1356,6 +1356,8 @@ def cmd_run(a) -> int:
             else:
                 j["status"] = "pending"
         save_run(d, r)
+        write_state("last_verdict", "%s job %s %s (%s)"
+                    % (d.name, jid, a.result, j["model"]))
         emit("run", {"ok": True, "action": "record", "job": jid, "result": a.result,
                      "status": j["status"], "model": j["model"], "escalated_to": escalated,
                      "verdict_archived": archived,
@@ -1386,6 +1388,17 @@ def cmd_run(a) -> int:
         if ok:
             r["status"] = "gate_green"
         save_run(d, r)
+        # STATE is what a fresh session trusts, and it was being left behind:
+        # one phase passed all five of its gates and STATE still read
+        # `last_verdict: none` an hour later. Nothing wrote that field - only
+        # two command docs mentioned it, and the driver is not either of them.
+        summary = "%s %d/%d gates green" % (d.name, sum(1 for x in results if x["ok"]),
+                                            len(results))
+        if not ok:
+            summary += " - failed: " + ", ".join(
+                Path(x["cmd"].split()[-1]).name for x in results if not x["ok"])
+        write_state("last_verdict", summary)
+        write_state("phase_gate", "green" if ok else "red")
         emit("run", {"ok": ok, "action": "gate", "phase": d.name, "results": results})
         for x in results:
             print(("  [ok]   " if x["ok"] else "  [FAIL] ") + x["cmd"])

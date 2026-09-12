@@ -16,9 +16,21 @@
 - loop_locked: no
 - palette_locked: no
 - greybox_passed: no
+- phase_gate: none
 - last_verdict: none
 - blockers: none
 - updated: {{DATE}}
+
+### Who writes what
+
+`gd` writes `phase_gate` and `last_verdict` — the driver stamps them on every
+`run record` and `run gate`, so a resumed session sees the real state rather
+than the template's.
+
+**`greybox_passed` is not automatic.** A green phase gate is necessary and not
+sufficient: Law 1 also requires a person to play it and answer *would I press
+start again?* `/gd:greybox` sets it, after that. `phase_gate: green` with
+`greybox_passed: no` is the normal, correct state while waiting for the human.
 
 ### Beat values
 
