@@ -5,3 +5,7 @@ gsd-gd/cache/
 __pycache__/
 *.pyc
 .claude/scheduled_tasks.lock
+
+# test scaffolding, not part of the system
+game/
+.planning/
