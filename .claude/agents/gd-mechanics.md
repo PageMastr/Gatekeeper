@@ -62,8 +62,15 @@ Read the `detail` on every check, including the passing ones. A check that
 passes for the wrong reason — the player "moved 4 m" because they fell off the
 map — is worse than a failure, because it buys false confidence.
 
-If your job needs a playtest plan that does not exist yet, write it
-(`gsd-gd/references/playtest-recipes.md`). The gate is part of the job.
+**You do not write or edit your own gate.** Playtest plans are authored by
+`gd-playtester` in an earlier wave, because a test written by the thing it
+certifies is self-grading — Law 6, one level up. You *run* your gate; you never
+touch the plan file.
+
+If your gate is genuinely wrong — asserting something the objective never
+promised, or referencing a node the plan mis-specified — that is a **deviation to
+report**, not a file to edit. Say precisely what is wrong and stop; the fix goes
+back through `gd-playtester`.
 
 ## Stay inside your lane
 

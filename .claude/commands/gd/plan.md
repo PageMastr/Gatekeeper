@@ -11,6 +11,11 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion, Skil
 
 Input: **$ARGUMENTS**
 
+If `$ARGUMENTS` contains `--then-run`, strip it and remember it: after the
+driver is armed at the end, invoke the `gd:run` skill instead of stopping.
+Without it, planning ends with a recommendation and waits for a human — which
+parks an unattended build indefinitely.
+
 ## First, work out which mode you are in
 
 ```bash
@@ -116,12 +121,18 @@ python gsd-gd/bin/gd.py state loop_locked yes
 ```
 
 **`game/<slug>/lab/minute_one.json`** — replace the seeded steps with the real
-Minute One, then prove the harness runs (it may fail on content; that is fine,
-a harness that does not run is a gate that does not exist):
+Minute One. Lint it, then prove the harness runs in **smoke mode**:
 
 ```bash
-python gsd-gd/bin/gd.py playtest minute_one
+python gsd-gd/bin/gd.py playtest minute_one --lint
+python gsd-gd/bin/gd.py playtest minute_one --smoke
 ```
+
+`--smoke` gates on the harness booting, the scene loading and screenshots being
+written, and records checks against not-yet-existing content as **pending**
+rather than failed. Without it, kickoff leaves a `verdict.json` that says
+`passed: false` and is indistinguishable from a real regression for the rest of
+the project.
 
 ## 4. Write the roadmap — the whole game, in stackable stages
 
@@ -181,6 +192,32 @@ working around it; every one of those is a real hole.
 Show the user the stage list and the risk order, and **get a yes before
 decomposing**. This is the cheapest moment to reorder the whole project.
 
+## 5. Set the budget, then commit the contracts
+
+**`.planning/BUDGET.md` is a contract too, and it is the one that gets
+forgotten.** Observed across three separate games: not one kickoff touched it,
+so all three inherited 60 fps / 1200 draw calls / 4 shadow lights / the default
+triangle budgets regardless of scope — and nobody finds out until the
+performance stage fails against numbers nobody chose.
+
+Now that the roadmap has described the real scene scope, set it:
+- name the target (desktop / handheld / web) — it changes every other number
+- scale `max_draw_calls` and the per-class triangle budgets to what the roadmap
+  actually describes
+- if the defaults are genuinely right for this game, **say so in Deviations**
+  with a date. An unreviewed contract is indistinguishable from a forgotten one.
+
+Numbers live in `gsd-gd/config.json` → `budget`; `BUDGET.md` is where they are
+justified. Change both together.
+
+Then **commit**. The contracts are the most expensive artefact in the project —
+they encode decisions, not code — and until now they have been one bad edit from
+gone. Two of three observed games had zero commits at this point.
+
+```bash
+git add -A && git commit -m "kickoff: contracts, roadmap and budget for <Name>"
+```
+
 Then continue into **Decompose** below for **stage 1 only**. Do not plan stages
 2+ in detail — they will be wrong by the time you reach them, and `/gd:ship`
 revises the roadmap with what was actually learned.
@@ -226,6 +263,27 @@ a phase that is not defined yet.
 
 Write each job as its own file from `gsd-gd/templates/JOB.md` into
 `.planning/phases/NN-<slug>/jobs/`.
+
+### The gates job — always emit one, always first
+
+**Law 6 says a builder never grades its own work, and per-job gates broke it.**
+Observed: an implementing agent wrote its own six-check gate and then passed it.
+Nothing was wrong with the work, but the test that certified it was written by
+the thing being certified, and no mechanism noticed.
+
+So **job 01 of every phase is a `gd-playtester` job, alone in wave 1, that
+authors every playtest plan the phase's gates name** — including the phase
+gate's. Implementing agents may then only *run* those plans, never write or edit
+them.
+
+Its own gate is lint, which needs no game to exist yet:
+
+```
+| 1 | Gates written ahead | gd-playtester | | 1 | lab/*.json | gd playtest <each plan> --lint |
+```
+
+If a later job finds its gate genuinely wrong, that is a deviation to report —
+the fix goes back through `gd-playtester`, not into the builder's own hands.
 
 ## Waves
 
@@ -275,4 +333,10 @@ Report: the contracts written (kickoff), the roadmap, the wave structure, the
 checkpoints and why each is a door, and the one job you think is most likely to
 fail with what you would try instead.
 
-Then recommend `/gd:greybox` if the loop is not yet proven, otherwise `/gd:run`.
+**If `--then-run` was passed**, invoke the `gd:run` skill now and let it drive.
+Otherwise end with the next command on its own line, as the last thing you say —
+not buried under the report:
+
+```
+/gd:run
+```

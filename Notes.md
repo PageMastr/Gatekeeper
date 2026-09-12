@@ -455,3 +455,55 @@ highest-value fix on the list.
    Ringfall's 13 — compare what a job covers in each.
 4. Whether Henhouse commits anything, and whether its `phase: none` desync
    resolves on its own.
+
+---
+
+# Fixes applied — 19:32Z (between loops 3 and 4)
+
+All 16 faults from loops 1–3 fixed, verified against the real engine, and the
+global install at `~/.claude/gsd-gd/` refreshed. Every fix was proved by
+reproducing the original failure first.
+
+| # | fault | fix | proof |
+|---|---|---|---|
+| 1 | kickoff smoke test left a `passed: false` verdict | `gd playtest --smoke` — gates on harness boot, records content checks as `pending` | same plan: full run exit 1, `--smoke` exit 0 with 2 pending |
+| 2 | `moved` check passed on a floor with no spine | `via: [...]` asserts *what* was traversed; AABB containment or `via_radius`; `directness` reported | `walked_the_spine_VIA` now FAILS `never entered: Spine/Seg01`, while a real traversal still passes |
+| 3 | `Expression` failures lost their error text | now carries the expression source, the resolved base node path + class, and the full error | code inspected; type-checks clean |
+| 4 | missing input action didn't say what exists | lists the non-`ui_` InputMap actions in the failure detail | lint output names all 8 available actions |
+| 5 | agents invent timestamps | `gd now`; Color Bible change log tells authors to use it | `gd now` returns real UTC |
+| 6 | `godot_project` miscased | `_true_case()` resolves each path segment against its real parent listing | `cd d:/clauDEgameDEV` → `work D:\ClaudeGameDev` |
+| 7 | plan→run was a hard stop | `--then-run` on `/gd:plan` and `/gd:new`; otherwise the next command is the last line, alone | doc change |
+| 8 | `/gd:greybox` and `/gd:run` overlapped | greybox checks `run status` first and hands off when a `RUN.json` exists | doc change |
+| 9 | no `running` state | `gd run start <job>`; `run next` returns `in_flight` and stops re-offering it | job 01 `running`; next offered only job 02 |
+| 10 | implementers wrote their own gates (Law 6 hole) | `gd-playtester` owns every plan, as job 01 alone in wave 1; `/gd:plan` emits that job; `gd-mechanics` forbidden from editing a plan | doc change across 3 files |
+| 11 | no way to validate a plan without running it | `gd playtest --lint` | caught 4 errors + 2 warnings in a bad plan, no Godot launch |
+| 12 | `STATE.md updated` went stale | shared `write_state()`; `gd palette` stamps `palette_synced` | `palette_synced` present after init |
+| 13 | `BUDGET.md` untouched in 3/3 games | kickoff step 5 sets it from the roadmap's scene scope, or records acceptance in Deviations | doc change |
+| 14 | `verdicts/` was a dead directory | `gd run record --verdict` archives to `<phase>/verdicts/<job>-attemptNN.json` | `01-attempt01.json` written |
+| 15 | commit discipline inconsistent (3/1/0 commits) | kickoff commits the contracts explicitly after the budget step | doc change |
+| 16 | STATE could disagree with the phase dir | `gd phase new` sets `state phase` itself | `set_current: true` |
+
+**Clean-slate regression, all exit 0:** doctor, now, init, check, playtest
+`--lint`, playtest `--smoke`, playtest full, asset, models. `roadmap` exits 1 on
+the unfilled template, which is correct. The modified harness type-checks clean
+against Godot 4.7 (`gd check` 5/5).
+
+**Installed copy verified** from an unrelated directory: init, check, smoke,
+asset all green; `run` exposes `start`; `playtest` exposes `--lint/--smoke`; the
+harness carries the `via` support.
+
+## Note for the remaining loops
+
+The three games under observation are running against the **old** installed
+copy — they were kicked off before these fixes. So:
+
+- Do **not** re-report faults 1–16 against them; they are fixed in the system
+  but those workspaces still contain the old artefacts (the 18-check
+  `minute_one.json`, the distance-only `moved` checks, the miscased
+  `godot_project`).
+- Their remaining value is as evidence for *new* faults, and for watching
+  whether the parts we did not touch hold up — wave-2 parallelism, the
+  escalation ladder, the checkpoint presentation, and whether any gate passes
+  for a reason nobody intended.
+- A fresh `/gd:new` in a fourth workspace would be the way to test the fixes
+  end to end, if that is wanted.

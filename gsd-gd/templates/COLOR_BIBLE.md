@@ -58,6 +58,10 @@ one warm family for the light source so it reads as the only source of heat.
 
 ## Change log
 
+Get the date from the tool, never from memory — `gd now`. An agent asked to
+stamp a row will invent a plausible time every single time (observed: sixteen
+rows stamped `18:40:00Z` in a file whose real mtime was `18:09:49`).
+
 | date | change | why |
 |---|---|---|
 | {{DATE}} | seeded from template | starting point; replace every row from the real reference |

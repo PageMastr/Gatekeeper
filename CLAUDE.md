@@ -47,13 +47,14 @@ python gsd-gd/bin/gd.py <verb>
 | `phase new\|list\|current` | phase directories |
 | `palette` | regenerate `res://scripts/palette.gd` from the Color Bible |
 | `roadmap [status\|done <id>]` | **validate the stage roadmap** — coverage, stacking, placeholders |
+| `now` | current UTC timestamp — never type one from memory |
 | `models` | show model routing per agent + flag config/frontmatter drift |
 | `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
 | `check [files]` | **GDScript gate** — engine type-check + Godot-3-ism scan |
 | `blender <script.py>` | run a Blender script headless with `gdblend` on path |
 | `asset <generator.py>` | generator → GLB → project → reimport, gated on metrics |
 | `godot import\|script` | headless engine operations |
-| `playtest <plan>` | measure + look + perf, writes `verdict.json` |
+| `playtest <plan> [--lint\|--smoke]` | measure + look + perf. `--lint` validates a plan without running it; `--smoke` gates on the harness booting |
 | `credits <asset> <source> <license>` | append to the licence ledger |
 
 And the local Godot 4.7 API reference:
@@ -150,7 +151,12 @@ These are enforced by tooling, not just convention. Do not work around them.
 - Test scenes: `game/<slug>/lab/`. One system, one straight line.
 - Never hand-write a `uid://` in a `.tscn` — an invalid UID crashes the importer.
 - Never name a local variable `name` in a `Node` subclass.
-- `.gd_out/` is generated output. Not committed, safe to delete.
+- `.gd_out/` is generated output. Not committed, safe to delete. Graded
+  verdicts are archived per attempt to `<phase>/verdicts/`.
+- **Never type a timestamp.** `gd now`. Agents invent plausible ones.
+- **An implementing agent never writes its own gate.** `gd-playtester` authors
+  every playtest plan, in an earlier wave. A test written by the thing it
+  certifies is self-grading — Law 6, one level up.
 
 ## Where to read more
 

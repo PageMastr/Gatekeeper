@@ -15,6 +15,20 @@ This beat exists to enforce Law 1. Art on top of a missing loop is wasted art,
 and it is wasted *late*, after it feels too expensive to throw away. The gate
 here is the most valuable gate in the system.
 
+## First: is this already a planned phase?
+
+```bash
+python gsd-gd/bin/gd.py run status 2>/dev/null
+```
+
+**If that returns a phase with jobs, stop and invoke the `gd:run` skill instead.**
+Once a greybox phase has been decomposed into jobs with an armed `RUN.json`,
+this command and `/gd:run` claim the same territory, and only one of them
+records attempts, escalates failures and survives an interruption. `/gd:run` is
+that one.
+
+Use the hand-driven path below only when there is no phase plan.
+
 ## The rule
 
 `/gd:build` will refuse asset work while `greybox_passed: no`. Do not set that

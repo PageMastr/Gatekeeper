@@ -19,7 +19,8 @@ extends Node
 ##                {"actions": ["move_forward"], "frames": 120, "label": "walk"},
 ##                {"shot": "at_door"},
 ##                {"actions": ["interact"], "frames": 6} ],
-##   "checks":  [ {"name": "moved", "kind": "moved", "probe": "player", "min": 3.0},
+##   "checks":  [ {"name": "moved", "kind": "moved", "probe": "player", "min": 3.0,
+##                 "via": ["Spine/Seg01", "Spine/Seg02"]},
 ##                {"name": "door",  "kind": "expr",  "expr": "get_node('Door').is_open"} ],
 ##   "perf":    { "sample_frames": 120 }
 ## }
@@ -30,6 +31,9 @@ var checks: Array = []
 var probe_first: Dictionary = {}
 var probe_last: Dictionary = {}
 var probe_path_len: Dictionary = {}
+var probe_visited: Dictionary = {}   # probe -> {node_name: true} for `via` checks
+var _via_nodes: Array[String] = []
+var _via_radius: float = 0.0
 var scene_root: Node = null
 var shot_index: int = 0
 var frames: int = 0
@@ -99,6 +103,7 @@ func _run() -> void:
 		return
 	scene_root = packed.instantiate()
 	add_child(scene_root)
+	_collect_via_nodes()
 
 	# Warm-up: the first frames of any process are garbage for both perf and looks
 	# (shaders still compiling, physics not settled). Never measure them.
@@ -138,9 +143,17 @@ func _do_step(step_v: Variant) -> void:
 		var act := str(a)
 		if not InputMap.has_action(act):
 			# A missing action is a real finding, not a harness problem: the plan
-			# and the project's input map have drifted apart.
+			# and the project's input map have drifted apart. Name what IS
+			# available, so the fix is one step instead of a lookup round-trip.
+			var known := InputMap.get_actions()
+			var listed: Array[String] = []
+			for k in known:
+				var ks := str(k)
+				if not ks.begins_with("ui_"):
+					listed.append(ks)
+			listed.sort()
 			checks.append({"name": "input_action:" + act, "ok": false,
-					"detail": "action not in InputMap - add it in project.godot or fix the plan"})
+					"detail": "action not in InputMap. Available: %s" % ", ".join(listed)})
 			continue
 		Input.action_press(act, float(step.get("strength", 1.0)))
 		held.append(act)
@@ -178,6 +191,50 @@ func _shoot(label: String) -> void:
 		errors.append("screenshot failed (%s): %s" % [err, fname])
 
 
+func _collect_via_nodes() -> void:
+	"""Every node path named by a `via` on any check, gathered once up front so
+	probe sampling does not re-scan the plan each frame."""
+	_via_nodes.clear()
+	for c in plan.get("checks", []):
+		if typeof(c) != TYPE_DICTIONARY:
+			continue
+		for v in (c as Dictionary).get("via", []):
+			var sv := str(v)
+			if not _via_nodes.has(sv):
+				_via_nodes.append(sv)
+		_via_radius = maxf(_via_radius, float((c as Dictionary).get("via_radius", 0.0)))
+	if _via_radius <= 0.0:
+		_via_radius = 3.0
+
+
+func _probe_is_inside(probe: Node, target: Node) -> bool:
+	"""Has the probe reached `target`?
+
+	Two strategies, because a `via` node may be a volume or just a marker. If
+	the target has visual extents, use real AABB containment (expanded slightly
+	so walking along a floor segment counts). Otherwise fall back to proximity,
+	which is what a bare Marker3D can support."""
+	if not (probe is Node3D) or not (target is Node3D):
+		return false
+	var p: Vector3 = (probe as Node3D).global_position
+	var vis := _first_visual(target)
+	if vis != null:
+		var aabb: AABB = (vis as VisualInstance3D).get_aabb()
+		aabb = (vis as Node3D).global_transform * aabb
+		return aabb.grow(_via_radius * 0.5).has_point(p)
+	return p.distance_to((target as Node3D).global_position) <= _via_radius
+
+
+func _first_visual(root: Node) -> Node:
+	if root is VisualInstance3D:
+		return root
+	for c in root.get_children():
+		var found := _first_visual(c)
+		if found != null:
+			return found
+	return null
+
+
 func _sample_probes(first: bool) -> void:
 	var probes: Dictionary = plan.get("probes", {})
 	for key in probes:
@@ -186,6 +243,15 @@ func _sample_probes(first: bool) -> void:
 		if node == null:
 			continue
 		var val = node.get_indexed(NodePath(str(spec.get("property", "position"))))
+		if not probe_visited.has(key):
+			probe_visited[key] = {}
+		# Record which of the plan's `via` nodes this probe has been inside.
+		for want_node in _via_nodes:
+			var n := scene_root.get_node_or_null(NodePath(want_node))
+			if n == null:
+				continue
+			if _probe_is_inside(node, n):
+				probe_visited[key][want_node] = true
 		if first and not probe_first.has(key):
 			probe_first[key] = val
 			probe_path_len[key] = 0.0
@@ -227,8 +293,26 @@ func _evaluate_checks() -> void:
 				var straight := 0.0
 				if typeof(probe_first.get(key)) == TYPE_VECTOR3 and typeof(probe_last.get(key)) == TYPE_VECTOR3:
 					straight = (probe_last[key] as Vector3).distance_to(probe_first[key])
+				var ratio := straight / maxf(travelled, 0.0001)
 				ok = travelled >= want
-				detail = "path=%.3f straight=%.3f need>=%.3f" % [travelled, straight, want]
+				detail = "path=%.3f straight=%.3f directness=%.2f need>=%.3f" % [
+						travelled, straight, ratio, want]
+				# Distance alone is satisfied by any open floor - a player can
+				# "walk the spine" 41m on a bare greybox with no spine in it.
+				# `via` makes the check assert WHAT was traversed.
+				var via: Array = c.get("via", [])
+				if not via.is_empty():
+					var missed: Array[String] = []
+					for want_node in via:
+						if not probe_visited.get(key, {}).has(str(want_node)):
+							missed.append(str(want_node))
+					if not missed.is_empty():
+						ok = false
+						detail += "; never entered: %s" % ", ".join(missed)
+					else:
+						detail += "; via %d node(s) ok" % via.size()
+				elif ok and ratio < 0.35:
+					detail += " (WARNING: wandering, not traversing - consider `via`)"
 			"still":
 				var key2 := str(c.get("probe", ""))
 				var tol := float(c.get("max", 0.05))
@@ -262,12 +346,17 @@ func _evaluate_checks() -> void:
 			"expr":
 				var e := Expression.new()
 				var src := str(c.get("expr", ""))
+				var base_desc := "%s (%s)" % [scene_root.get_path(), scene_root.get_class()]
 				if e.parse(src, []) != OK:
-					detail = "parse error: " + e.get_error_text()
+					detail = "parse error in `%s`: %s" % [src, e.get_error_text()]
 				else:
 					var res = e.execute([], scene_root, false)
 					if e.has_execute_failed():
-						detail = "execute failed: " + e.get_error_text()
+						# Godot's message alone ("Invalid named index 'x' for base
+						# type Object") never says which node was Object-typed, so
+						# carry the expression and the resolved base with it.
+						detail = "execute failed on `%s` | base=%s | %s" % [
+								src, base_desc, e.get_error_text()]
 					else:
 						ok = bool(res)
 						detail = "%s -> %s" % [src, res]

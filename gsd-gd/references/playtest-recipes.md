@@ -37,7 +37,7 @@ verdict reports both).
 
 | kind | fields | asserts |
 |---|---|---|
-| `moved` | `probe`, `min` | total path length of a Vector3 probe ≥ min |
+| `moved` | `probe`, `min`, `via?`, `via_radius?` | total path length ≥ min, **and** the probe entered every node in `via` |
 | `still` | `probe`, `max` | probe barely moved (idle, frozen, anchored) |
 | `node_exists` | `path` | node present in the loaded scene |
 | `prop_between` | `path`, `property`, `min`, `max` | numeric property inside range |
@@ -71,10 +71,39 @@ scene, deterministic, fast.
 visible, looking at the most expensive direction. Budget gates only mean
 something if they are measured at the worst case, not the spawn point.
 
+## Lint before you run
+
+```bash
+gd playtest <plan> --lint
+```
+
+No Godot launch. Catches a typo'd input action (and names the ones that exist),
+an unknown check kind, a check referencing an undeclared probe, an empty `expr`,
+and a `moved` check with no `via`. Run it on every plan you write — it is
+seconds versus a full engine boot.
+
+## Smoke mode
+
+```bash
+gd playtest <plan> --smoke
+```
+
+Gates on the harness booting, the scene loading and shots being written; records
+content checks as **pending** instead of failed. For kickoff, when the plan
+describes a game that does not exist yet. Never use it as a real gate.
+
 ## Writing a good check
 
 - **Assert the outcome, not the implementation.** "player moved 4 m" survives a
   locomotion rewrite; "velocity.z == -4.0" does not.
+- **A distance is not a route.** `moved` with only a `min` is satisfied by any
+  open floor — observed passing at 41 m in a scene containing no spine at all,
+  which is the "passes for the wrong reason" failure this file warns about.
+  Always add `via`:
+  `{"kind": "moved", "probe": "player", "min": 8.0, "via": ["Spine/Seg01", "Spine/Seg02"]}`
+  A `via` node is entered by AABB containment when it has visual extents, else
+  by proximity within `via_radius` (default 3 m). The verdict also reports
+  `directness` (straight ÷ path) and warns below 0.35 — wandering, not traversing.
 - **Bound both sides.** `prop_between` on `global_position:y` catches falling
   through the floor *and* being launched into orbit. A one-sided check catches
   half the bugs.

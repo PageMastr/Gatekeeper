@@ -110,6 +110,10 @@ design conversation on top of a broken harness.
 
 Now invoke the **`gd:plan`** skill, passing the idea from `$ARGUMENTS`.
 
+If `$ARGUMENTS` contained `--then-run`, pass it through — `/gd:plan` will chain
+into the driver rather than stopping after planning. Without it, an unattended
+build parks itself after the interview and waits for a keystroke.
+
 It will see unlocked contracts and enter KICKOFF mode: the interview (reference,
 loop, tension, one-way doors, lighting condition, scope), then
 `CONTEXT.md` → `COLOR_BIBLE.md` → `CORE_LOOP.md` → `minute_one.json` →

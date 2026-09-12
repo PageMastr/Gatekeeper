@@ -38,6 +38,29 @@ SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
 CONFIG = SYS_DIR / "config.json"
 
 
+def _true_case(p: Path) -> Path:
+    """The path as the filesystem actually spells it.
+
+    Windows is case-insensitive, so `cd d:\\testgame` yields a cwd of
+    `D:\\testgame` even though the directory is `TestGame` - and that miscased
+    string then gets written into STATE.md and echoed everywhere. Resolve each
+    component against its real parent listing.
+    """
+    try:
+        p = p.resolve()
+        if os.name != "nt":
+            return p
+        parts = list(p.parts)
+        out = Path(parts[0])
+        for seg in parts[1:]:
+            match = next((c.name for c in out.iterdir()
+                          if c.name.lower() == seg.lower()), None)
+            out = out / (match or seg)
+        return out
+    except OSError:
+        return p
+
+
 def _find_work_root() -> Path:
     """Resolve the workspace: explicit override, then an existing project, then
     a repo root, then the cwd."""
@@ -45,15 +68,15 @@ def _find_work_root() -> Path:
     if env:
         p = Path(env).expanduser().resolve()
         if p.is_dir():
-            return p
+            return _true_case(p)
     here = Path.cwd().resolve()
     for cand in [here, *here.parents]:
         if (cand / ".planning").is_dir():
-            return cand
+            return _true_case(cand)
     for cand in [here, *here.parents]:
         if (cand / ".git").exists():
-            return cand
-    return here
+            return _true_case(cand)
+    return _true_case(here)
 
 
 WORK = _find_work_root()
@@ -285,6 +308,27 @@ def parse_state(text: str) -> dict:
     return out
 
 
+def write_state(key: str, value: str, touch_only: bool = False) -> bool:
+    """Set one STATE.md field and refresh `updated`.
+
+    Shared so that every verb which changes the project's real state can stamp
+    it. Observed fault: contract edits left `updated` fifteen minutes stale, and
+    STATE is the first thing a resumed session trusts.
+    """
+    p = PLANNING / "STATE.md"
+    if not p.exists():
+        return False
+    text = p.read_text(encoding="utf-8")
+    if not touch_only:
+        pat = r"^(-\s+" + re.escape(key) + r":).*$"
+        text, n = re.subn(pat, r"\1 " + value, text, count=1, flags=re.M)
+        if n == 0:
+            text = text.replace("## Now\n", "## Now\n- " + key + ": " + value + "\n", 1)
+    text = re.sub(r"^(-\s+updated:).*$", r"\1 " + now(), text, count=1, flags=re.M)
+    p.write_text(text, encoding="utf-8")
+    return True
+
+
 def cmd_state(a) -> int:
     p = state_path()
     text = p.read_text(encoding="utf-8")
@@ -295,13 +339,23 @@ def cmd_state(a) -> int:
     if a.value is None:
         emit("state", {"ok": True, "key": a.key, "value": parse_state(text).get(a.key)})
         return 0
-    pat = r"^(-\s+" + re.escape(a.key) + r":).*$"
-    new, n = re.subn(pat, r"\1 " + a.value, text, count=1, flags=re.M)
-    if n == 0:
-        new = text.replace("## Now\n", "## Now\n- " + a.key + ": " + a.value + "\n", 1)
-    new = re.sub(r"^(-\s+updated:).*$", r"\1 " + now(), new, count=1, flags=re.M)
-    p.write_text(new, encoding="utf-8")
+    write_state(a.key, a.value)
     emit("state", {"ok": True, "key": a.key, "value": a.value, "written": True})
+    return 0
+
+
+def cmd_now(a) -> int:
+    """The clock, for anything an agent would otherwise type from memory.
+
+    Observed fault: a Color Bible change log stamped sixteen rows
+    `18:40:00Z` in a file whose real mtime was `18:09:49`. An agent will invent
+    a plausible timestamp every time; this makes reading the real one cheaper
+    than guessing.
+    """
+    emit("now", {"ok": True, "utc": now(),
+                 "local": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                 "date": datetime.now(timezone.utc).strftime("%Y-%m-%d")})
+    print(now())
     return 0
 
 
@@ -325,8 +379,13 @@ def cmd_phase(a) -> int:
         (d / "PLAN.md").write_text(
             tpl("PLAN.md").replace("{{PHASE}}", d.name).replace("{{DATE}}", now()),
             encoding="utf-8")
+        # Creating a phase and not making it current was a separate call the
+        # agent had to remember, and STATE ended up claiming `phase: none` while
+        # the directory sat there. There is no case where you create a phase and
+        # do not want it current.
+        made_current = write_state("phase", d.name)
         emit("phase", {"ok": True, "created": d.name, "dir": str(d),
-                       "plan": str(d / "PLAN.md")})
+                       "plan": str(d / "PLAN.md"), "set_current": made_current})
         return 0
     if a.action == "current":
         cur = parse_state(state_path().read_text(encoding="utf-8")).get("phase")
@@ -688,6 +747,36 @@ def parse_plan(plan: Path) -> dict:
     return {"jobs": jobs, "checkpoints": checkpoints, "phase_gate": gates}
 
 
+def archive_verdict(d: Path, jid: str, attempt: int, src=None):
+    """Copy the verdict that graded an attempt into <phase>/verdicts/.
+
+    `gd phase new` has always created that directory and nothing ever wrote to
+    it. Meanwhile `.gd_out/<plan>/verdict.json` is overwritten by the next run,
+    so a per-attempt history existed nowhere - exactly what the ship retro
+    wants. Given an explicit --verdict path, use it; otherwise take the most
+    recently modified verdict.json under the project."""
+    dest_dir = d / "verdicts"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    cand = None
+    if src:
+        p = Path(src)
+        cand = p if p.exists() else None
+    if cand is None:
+        proj = locate_project()
+        if proj:
+            found = sorted(proj.glob(".gd_out/*/verdict.json"),
+                           key=lambda p: p.stat().st_mtime, reverse=True)
+            cand = found[0] if found else None
+    if cand is None:
+        return None
+    dest = dest_dir / ("%s-attempt%02d.json" % (jid, attempt))
+    try:
+        shutil.copy2(cand, dest)
+    except OSError:
+        return None
+    return str(dest)
+
+
 def run_file(d: Path) -> Path:
     return d / "RUN.json"
 
@@ -761,6 +850,25 @@ def cmd_run(a) -> int:
             print("    job %s  %s  model=%s  gate=%s" % (j["id"], j["agent"], j["model"], j["gate"]))
         return 0
 
+    if act == "start":
+        # Without this, a job being worked right now is indistinguishable from
+        # one nobody has touched - both read `pending / 0 attempts`. That breaks
+        # observability and, worse, makes a crashed half-done job resume
+        # identically to a fresh one.
+        if not a.job:
+            die("`gd run start <job>`")
+        jid = "%02d" % int(a.job) if str(a.job).isdigit() else str(a.job)
+        if jid not in r["jobs"]:
+            die("no job " + jid + " in " + d.name)
+        j = r["jobs"][jid]
+        j["status"] = "running"
+        j["started_at"] = now()
+        save_run(d, r)
+        emit("run", {"ok": True, "action": "start", "job": jid,
+                     "model": j["model"], "attempt": j["total_attempts"] + 1,
+                     "started_at": j["started_at"]})
+        return 0
+
     if act == "record":
         if not a.job or a.result not in ("pass", "fail"):
             die("`gd run record <job> pass|fail [--note ...]`")
@@ -768,6 +876,10 @@ def cmd_run(a) -> int:
         if jid not in r["jobs"]:
             die("no job " + jid + " in " + d.name)
         j = r["jobs"][jid]
+        # Archive the verdict that graded this attempt. `.gd_out/<plan>/` only
+        # ever holds the last run, so without this the per-attempt history the
+        # /gd:ship retro asks for does not exist anywhere.
+        archived = archive_verdict(d, jid, j["total_attempts"] + 1, a.verdict)
         j["total_attempts"] += 1
         j["attempts_at_tier"] += 1
         j["history"].append({"at": now(), "model": j["model"],
@@ -800,6 +912,7 @@ def cmd_run(a) -> int:
         save_run(d, r)
         emit("run", {"ok": True, "action": "record", "job": jid, "result": a.result,
                      "status": j["status"], "model": j["model"], "escalated_to": escalated,
+                     "verdict_archived": archived,
                      "attempts_at_tier": j["attempts_at_tier"],
                      "total_attempts": j["total_attempts"],
                      "run_status": r["status"], "stop_reason": r["stop_reason"]})
@@ -906,6 +1019,14 @@ def run_next(r: dict) -> dict:
             return {"action": "stop",
                     "why": "job(s) blocked in wave %d: %s"
                            % (w, ", ".join(k for k, v in in_wave.items() if v["status"] == "blocked"))}
+        inflight = {k: v for k, v in in_wave.items() if v["status"] == "running"}
+        if inflight and len(inflight) == len(unfinished):
+            return {"action": "in_flight", "wave": w,
+                    "why": "wave %d job(s) already dispatched and not yet recorded: %s"
+                           % (w, ", ".join(sorted(inflight))),
+                    "jobs": [{"id": k, "agent": v["agent"], "model": v["model"],
+                              "started_at": v.get("started_at")}
+                             for k, v in sorted(inflight.items())]}
         if unfinished:
             return {
                 "action": "dispatch",
@@ -915,7 +1036,9 @@ def run_next(r: dict) -> dict:
                           "gate": v["gate"], "title": v["title"], "touches": v["touches"],
                           "attempt": v["total_attempts"] + 1,
                           "attempts_at_tier": v["attempts_at_tier"]}
-                         for k, v in sorted(unfinished.items())],
+                         for k, v in sorted(unfinished.items())
+                         if v["status"] != "running"],
+                "in_flight": sorted(inflight),
             }
         # Wave complete - an unresolved checkpoint inside it halts before the next.
         open_ck = [c for c in r["checkpoints"]
@@ -1129,6 +1252,79 @@ def cmd_check(a) -> int:
 # --------------------------------------------------------------------------- #
 # playtest  (the "measure" + "look" gate)
 # --------------------------------------------------------------------------- #
+PLAN_CHECK_KINDS = {"moved", "still", "node_exists", "prop_between", "prop_gt",
+                    "prop_lt", "prop_eq", "expr"}
+
+
+def project_actions(proj: Path) -> list:
+    """Input actions declared in project.godot."""
+    f = proj / "project.godot"
+    if not f.exists():
+        return []
+    text = f.read_text(encoding="utf-8", errors="replace")
+    body = text.split("[input]", 1)[1] if "[input]" in text else ""
+    body = re.split(r"^\[", body, maxsplit=1, flags=re.M)[0]
+    return sorted(set(re.findall(r"^([A-Za-z_][A-Za-z0-9_]*)=\{", body, re.M)))
+
+
+def lint_plan(plan: dict, proj: Path) -> dict:
+    """Validate a playtest plan without running it.
+
+    The gap this closes: a plan's only feedback used to be a full run, so a
+    typo'd action name or a check with no `kind` cost a whole Godot launch to
+    discover - and one game's planner resorted to an improvised python
+    one-liner as a gate because no verb existed for this."""
+    errors, warnings = [], []
+    scene = str(plan.get("scene", ""))
+    if not scene:
+        errors.append("no `scene`")
+    elif not scene.startswith("res://"):
+        errors.append("`scene` must be a res:// path, got " + scene)
+    else:
+        rel = scene[len("res://"):]
+        if not (proj / rel).exists():
+            errors.append("scene does not exist: " + scene)
+
+    have = project_actions(proj)
+    for i, step in enumerate(plan.get("steps", []), 1):
+        if not isinstance(step, dict):
+            errors.append("step %d is not an object" % i)
+            continue
+        for act in step.get("actions", []):
+            if act not in have:
+                errors.append("step %d presses '%s', which is not in the InputMap. "
+                              "Available: %s" % (i, act, ", ".join(have) or "(none)"))
+        if not any(k in step for k in ("actions", "wait", "frames", "seconds",
+                                       "shot", "shot_after")):
+            warnings.append("step %d does nothing" % i)
+
+    probes = plan.get("probes", {})
+    for c in plan.get("checks", []):
+        if not isinstance(c, dict):
+            errors.append("a check is not an object")
+            continue
+        kind = c.get("kind", "expr")
+        name = c.get("name", kind)
+        if kind not in PLAN_CHECK_KINDS:
+            errors.append("check '%s' has unknown kind '%s'. Valid: %s"
+                          % (name, kind, ", ".join(sorted(PLAN_CHECK_KINDS))))
+        if kind in ("moved", "still") and c.get("probe") not in probes:
+            errors.append("check '%s' references probe '%s', which is not declared"
+                          % (name, c.get("probe")))
+        if kind == "moved" and not c.get("via"):
+            warnings.append("check '%s' asserts distance only - any open floor "
+                            "satisfies it. Add `via` with the nodes that must be "
+                            "traversed." % name)
+        if kind in ("prop_between", "prop_gt", "prop_lt", "prop_eq") and not c.get("path"):
+            errors.append("check '%s' has no `path`" % name)
+        if kind == "expr" and not str(c.get("expr", "")).strip():
+            errors.append("check '%s' has an empty `expr`" % name)
+    if not plan.get("checks"):
+        warnings.append("plan has no checks - it can only prove the harness boots")
+    return {"ok": not errors, "errors": errors, "warnings": warnings,
+            "actions_available": have}
+
+
 def cmd_playtest(a) -> int:
     proj = Path(a.project).resolve() if a.project else find_project()
     plan_p = Path(a.plan)
@@ -1145,6 +1341,18 @@ def cmd_playtest(a) -> int:
                 + " (looked in " + str(proj / "lab") + ")")
     plan_p = plan_p.resolve()
     plan = json.loads(plan_p.read_text(encoding="utf-8"))
+
+    if a.lint:
+        res = lint_plan(plan, proj)
+        emit("playtest", {"ok": res["ok"], "action": "lint", "plan": plan_p.name, **res})
+        for w in res["warnings"]:
+            print("  [warn] " + w)
+        for e in res["errors"]:
+            print("  [FAIL] " + e)
+        if res["ok"] and not res["warnings"]:
+            print("  plan ok: " + plan_p.name)
+        return 0 if res["ok"] else 1
+
     install_harness(proj)
 
     stem = plan_p.stem
@@ -1213,6 +1421,23 @@ def cmd_playtest(a) -> int:
     if perf.get("shadow_lights") is not None and perf["shadow_lights"] > b["max_shadow_casting_lights"]:
         fails.append("shadow_lights %s > %s (see references/godot-patterns.md#shadow-discipline)"
                      % (perf["shadow_lights"], b["max_shadow_casting_lights"]))
+    if a.smoke:
+        # Kickoff needs to prove the harness runs, not that the game exists yet.
+        # Grading content checks as failures there leaves a verdict.json that is
+        # indistinguishable from a real regression and poisons `last_verdict`.
+        pending = [c for c in verdict.get("checks", []) if not c.get("ok")]
+        for c in pending:
+            c["ok"] = None
+            c["pending"] = True
+        verdict["smoke"] = True
+        verdict["pending_checks"] = len(pending)
+        booted = bool(verdict.get("frames_run")) and not verdict.get("errors")
+        shots = sorted(p.name for p in (outdir / "shots").glob("*.png"))
+        verdict["passed"] = booted and (bool(shots) or a.headless)
+        verdict["smoke_reason"] = ("harness booted, scene loaded, %d shot(s); "
+                                   "%d content check(s) recorded as pending"
+                                   % (len(shots), len(pending)))
+
     # A run that "passed" while spraying script errors has not passed. The
     # harness cannot see these; the process output can.
     runtime_errors = [ln.strip() for ln in out.splitlines()
@@ -1320,6 +1545,7 @@ def cmd_palette(a) -> int:
         "",
     ]
     dest.write_text("\n".join(lines), encoding="utf-8")
+    write_state("palette_synced", now())
     emit("palette", {"ok": True, "keys": list(entries), "count": len(entries),
                      "written": str(dest)})
     return 0
@@ -1398,16 +1624,20 @@ def main(argv=None) -> int:
     p.add_argument("stage", nargs="?", help="stage id, for `done`")
     p.set_defaults(fn=cmd_roadmap)
 
+    sub.add_parser("now", help="current UTC timestamp - never type one from memory"
+                   ).set_defaults(fn=cmd_now)
+
     sub.add_parser("models", help="show model routing, and flag config/frontmatter drift"
                    ).set_defaults(fn=cmd_models)
 
     p = sub.add_parser("run", help="phase driver state machine (used by /gd:run)")
-    p.add_argument("action", choices=["init", "next", "record", "gate", "resolve",
-                                      "block", "complete", "status"])
+    p.add_argument("action", choices=["init", "next", "start", "record", "gate",
+                                      "resolve", "block", "complete", "status"])
     p.add_argument("job", nargs="?", help="job id, for record/resolve")
     p.add_argument("result", nargs="?", choices=["pass", "fail"], help="for record")
     p.add_argument("--phase", help="phase dir name; default = STATE.md's current")
     p.add_argument("--note")
+    p.add_argument("--verdict", help="verdict.json that graded this attempt; archived into <phase>/verdicts/")
     p.add_argument("--force", action="store_true")
     p.add_argument("--timeout", type=int, default=1800)
     p.set_defaults(fn=cmd_run)
@@ -1424,6 +1654,10 @@ def main(argv=None) -> int:
     p.add_argument("--out")
     p.add_argument("--resolution")
     p.add_argument("--headless", action="store_true", help="measure only; no screenshots")
+    p.add_argument("--lint", action="store_true",
+                   help="validate the plan without running it: schema, input actions, check kinds")
+    p.add_argument("--smoke", action="store_true",
+                   help="kickoff mode: gate on the harness booting; record content checks as pending")
     p.add_argument("--timeout", type=int, default=600)
     p.set_defaults(fn=cmd_playtest)
 
