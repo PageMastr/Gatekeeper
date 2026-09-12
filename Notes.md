@@ -165,3 +165,151 @@ it leaks into anything that echoes the path.
 3. If `/gd:run` started: are jobs being graded, and did any escalate a tier?
 4. Whether the 18-check `minute_one.json` gets rewritten into a real stage-1
    gate, or left as-is and inherited as permanent noise.
+
+---
+
+# Loop 2 — 19:02Z · kickoff complete, then a dead stop
+
+State: **stage 1 planned and armed, nothing built.** `beat: greybox`,
+`phase: 01-greybox`, 13 jobs across 6 waves, `RUN.json` written, all jobs
+`pending` with 0 attempts. Three commits exist.
+
+**No file has been written anywhere in the workspace since 18:30.** Clean git
+status, no work in flight. The session has been idle ~32 minutes.
+
+## Two loop-1 risks closed themselves
+
+Worth recording, because it validates the loop-1 decision to log them as *risks*
+rather than *faults*:
+
+- **Kickoff did finish.** It went on to decompose stage 1 and arm the driver. No
+  completion gate was needed for it to happen — though see below, one is still
+  worth having.
+- **Git commits appeared** — three, with real messages: `kickoff contracts
+  locked, greybox scaffold green`, `stage 01: greybox decomposed into 13 jobs,
+  6 waves, driver armed`, `setting fixed — the Ring orbits a hot white dwarf`.
+
+## The system handled a late contract revision correctly
+
+That third commit is a **setting change made after the contracts were locked** —
+the Ring re-set to orbit a hot white dwarf. The system absorbed it cleanly:
+`COLOR_BIBLE.md` edited 18:45:39, `palette.gd` regenerated 18:45:45 (six seconds
+later), and `gd roadmap` still validates. That is the palette contract doing
+exactly its job on a change that would otherwise have drifted silently into the
+first asset built.
+
+## The decomposition is good, and it followed the hard advice
+
+Wave 2 runs **seven** jobs in parallel, and they genuinely are disjoint — each
+owns its own `scripts/<subsystem>/` and its own `scenes/greybox/<thing>.tscn`:
+player, station, crew, clock, wreck, hud, gates. And `scenes/main.tscn` is
+touched by **exactly one** job (11, wave 4, "compose main.tscn").
+
+That is the `.tscn`-collision advice from `/gd:plan` followed to the letter —
+each subsystem builds its own scene, composed in a later job, rather than seven
+agents merging one scene file. It is the part of the plan I most expected to be
+got wrong, and it was got right.
+
+Model routing came out sensible unprompted too: 12 jobs on `gd-mechanics`/opus,
+job 10 on `gd-playtester`/sonnet, no `gd-modeler` anywhere — correct, a greybox
+has no assets.
+
+## Confirmed faults
+
+### 7. The plan-to-run handoff is a hard stop, and it is the entire idle gap
+
+`/gd:plan` ends by *recommending* `/gd:run` and stopping. That is exactly what I
+wrote it to do — and it means an overnight build parks itself indefinitely after
+planning, waiting for one keystroke. The 32 idle minutes are not a malfunction,
+they are the design.
+
+For someone who asked for autonomy, "plan, then stop" is the wrong default.
+There is an autonomy layer and no way to reach it without a human turn.
+
+**Fix:** `/gd:plan --then-run` and `/gd:new --then-run`, chaining straight into
+the driver. Also make the stop louder when it is deliberate — the final line
+should be the literal next command, alone, not buried under a report.
+
+### 8. `/gd:greybox` and `/gd:run` now claim the same territory
+
+`beat: greybox`, with a planned phase, 13 jobs and an armed driver. Should the
+user type `/gd:greybox` or `/gd:run`? Both are defensible from the docs.
+`/gd:next` resolves it correctly — the phase has no asset jobs, so the Law-1 row
+does not fire and it routes to `/gd:run` — but only if the user thinks to ask.
+
+**Fix:** once a phase has a `RUN.json`, `/gd:greybox` should detect it and hand
+off to `/gd:run` rather than offering a parallel hand-driven path. Keep
+`/gd:greybox` for when no phase plan exists.
+
+### 9. The driver has no `running` state, so in-flight is indistinguishable from never-started
+
+Every job reads `pending / 0 attempts`. A job being actively worked right now
+looks identical to one nobody has touched. That cost me a real diagnostic step
+this loop — I had to fall back on file mtimes and `git status` to establish that
+nothing was in flight.
+
+It is worse than an observability gap: after a crash, a job that was 90% done
+and one never begun resume identically.
+
+**Fix:** `gd run start <job>` setting `status: running` with a timestamp, called
+before dispatch. Then `run status` shows what is in flight, and a `running` job
+older than a threshold is a visible stall.
+
+### 10. Per-job gates are written by the agent that implements the job — Law 6 has a hole
+
+Law 6 says a builder never grades its own work, and we enforce it for
+*screenshots* (`gd-critic` never sees the code). But `gd-mechanics` is told: *"If
+your job needs a playtest plan that does not exist yet, write it. The gate is
+part of the job."* So the implementing agent authors the test it must pass. That
+is self-grading one level up, and much easier to miss than a builder praising
+its own render.
+
+**The planner independently noticed and worked around it.** Job 10 is "Gates
+written ahead", assigned to `gd-playtester` — pulling `loop_complete`,
+`can_lose_dawn` and `can_lose_abandoned` out to a *different* agent, in an
+earlier wave than the jobs they gate. Our own doctrine being patched by the
+plan is the clearest possible signal the doctrine is wrong.
+
+**Fix:** promote that pattern into the system. Per-job playtest plans get
+authored by `gd-playtester` in an earlier wave, never by the implementing agent.
+`/gd:plan` should emit that job automatically instead of relying on the planner
+to invent it.
+
+### 11. No way to validate a playtest plan without running it
+
+Job 10's gate is *"plan schema check (python one-liner)"* — the agent had to
+improvise, because there is no `gd` verb for "is this plan well-formed?".
+
+**Fix:** `gd playtest --lint <plan>`: validate the JSON schema, confirm every
+`actions` entry exists in the project InputMap (which would have caught the
+`confirm` drift from loop 1 *before* a run), and warn on `expr` checks whose
+node paths do not resolve in the named scene. That turns "gates written ahead"
+into a checkable deliverable rather than a promise.
+
+### 12. STATE.md's `updated` field lies after a contract edit
+
+`STATE.md` says `updated: 18:30:59`, but `CONTEXT.md` and `COLOR_BIBLE.md` were
+edited at 18:45. Contract edits do not touch STATE, so the one timestamp a fresh
+session reads first is stale by fifteen minutes.
+
+**Fix:** `gd palette` and every contract-touching verb should stamp `state
+updated`. Cheap, and STATE is the file a resumed session trusts.
+
+## Observation, not yet a fault
+
+**The open checkpoint already contains its own answer.** The one-way door after
+job 01 reads: *"Faith representation: one global scalar vs a per-crew state
+machine. **Recommendation:** per-crew…"* with a full paragraph of reasoning.
+Genuinely useful, and it also risks reducing the checkpoint to a rubber stamp.
+Watch whether the user gets a real choice or just an assent. If it recurs,
+`/gd:run` should present the options and the cost of each, not lead with the
+recommendation.
+
+## Next loop should check
+
+1. Did `/gd:run` get invoked — any job attempts, any files in `verdicts/`?
+2. If wave 1 ran: did job 01 add the `confirm` action, closing the loop-1
+   InputMap drift?
+3. How the checkpoint after job 01 gets presented and resolved.
+4. Whether the 18-check `minute_one.json` from kickoff gets rewritten by job 10
+   or 11, or inherited as permanent noise.

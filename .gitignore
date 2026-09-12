@@ -4,3 +4,4 @@ game/*/.gd_out/
 gsd-gd/cache/
 __pycache__/
 *.pyc
+.claude/scheduled_tasks.lock
