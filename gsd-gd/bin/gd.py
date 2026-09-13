@@ -1246,7 +1246,8 @@ def archive_verdict(d: Path, jid: str, attempt: int, src=None):
     if cand is None:
         proj = locate_project()
         if proj:
-            found = sorted(proj.glob(".gd_out/*/verdict.json"),
+            found = sorted(list(proj.glob(".gd_out/*/*/verdict.json"))
+                            + list(proj.glob(".gd_out/*/verdict.json")),
                            key=lambda p: p.stat().st_mtime, reverse=True)
             cand = found[0] if found else None
     if cand is None:
@@ -1297,6 +1298,19 @@ def cmd_run(a) -> int:
                 problems.append("job %s has no gate - a job without a gate is a wish" % jid)
             elif re.search(r"[<>]", j["gate"]):
                 problems.append("job %s gate is still a placeholder: %s" % (jid, j["gate"]))
+        # Only gd-playtester authors gates. Two projects independently found
+        # that a job file could hand a builder its own gate while the builder's
+        # brief forbade it, with nothing resolving which wins. Resolve it here,
+        # where it cannot be missed.
+        for jid, j in sorted(parsed["jobs"].items()):
+            if j["agent"] == "gd-playtester":
+                continue
+            if re.search(r"lab/\S*\.json", j.get("touches", "")):
+                problems.append(
+                    "job %s (%s) lists a playtest plan in `touches` - only "
+                    "gd-playtester authors gates (Law 6b). Move the plan to the "
+                    "gates job and leave this job only running it."
+                    % (jid, j["agent"]))
         if not parsed["phase_gate"]:
             problems.append("PLAN.md has no `- gate:` lines - the phase has no "
                             "machine-readable definition of done")
@@ -1748,13 +1762,26 @@ def cmd_check(a) -> int:
 
     # Scene-embedded scripts: extract to a temp .gd inside the project so res://
     # resolves, check it, then remove. Reported under `<scene>::<sub_resource id>`.
+    # Scenes to mine for embedded scripts: the whole project when no files were
+    # named, otherwise exactly the ones that were.
+    #
+    # This used to sit behind `if not a.files`, which made the targeted form -
+    # `gd check lab/interactables.tscn`, the natural thing to type after editing
+    # one scene - a PASS that asserted nothing about the only code in the file.
+    # A .tscn handed to `--check-only --script` reports no error because it is
+    # not a script. That was a false pass, and I introduced it.
+    if a.files:
+        scenes = [p for p in targets if p.suffix.lower() in (".tscn", ".tres")]
+        targets = [p for p in targets if p.suffix.lower() not in (".tscn", ".tres")]
+    else:
+        scenes = [p for p in sorted(list(proj.rglob("*.tscn")) + list(proj.rglob("*.tres")))
+                  if ".godot" not in p.parts]
     embedded = []
-    if not a.files:
-        for scene in sorted(list(proj.rglob("*.tscn")) + list(proj.rglob("*.tres"))):
-            if ".godot" in scene.parts:
-                continue
-            for sid, src in embedded_scripts(scene):
-                embedded.append((scene, sid, src))
+    for scene in scenes:
+        for sid, src in embedded_scripts(scene):
+            embedded.append((scene, sid, src))
+    named_scenes_without_scripts = [p for p in scenes
+                                    if not any(e[0] == p for e in embedded)]
     tmp_dir = proj / "scripts" / "_gd_embedded_check"
     tmp_written = []
     if embedded:
@@ -1816,6 +1843,13 @@ def cmd_check(a) -> int:
     # imports, so unlinking only the .gd files leaves the directory behind.
     if tmp_written and tmp_dir.exists():
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    for sc in named_scenes_without_scripts:
+        results.append({
+            "file": "res://" + str(sc.relative_to(proj)).replace("\\", "/"),
+            "embedded": True, "ok": True, "engine_errors": [],
+            "autoloads_forgiven": [], "godot3_findings": [],
+            "note": "no embedded GDScript in this scene - nothing to type-check"})
 
     ok = all(x["ok"] for x in results)
     emit("check", {"ok": ok, "files": len(results),
@@ -1985,7 +2019,15 @@ def cmd_playtest(a) -> int:
     cache_state = ensure_class_cache(proj)
 
     stem = plan_p.stem
-    outdir = Path(a.out).resolve() if a.out else (proj / ".gd_out" / stem)
+    # Output is RUN-scoped, not plan-scoped. Loop 5 made the plan inbox unique
+    # per run and left this half of the race in place: two agents running the
+    # same plan in one wave wrote shots to the same `.gd_out/<plan>/shots/`, so
+    # a critic could be handed another run's frames without either agent
+    # noticing. That is a false-pass path - the look pass grading the wrong
+    # images - and it was observed: a directory refilling from 1 to 6 files with
+    # different bytes while it was being read.
+    run_id = "%d-%s" % (os.getpid(), uuid.uuid4().hex[:8])
+    outdir = Path(a.out).resolve() if a.out else (proj / ".gd_out" / stem / run_id)
     shutil.rmtree(outdir, ignore_errors=True)
     (outdir / "shots").mkdir(parents=True, exist_ok=True)
 
@@ -1994,7 +2036,6 @@ def cmd_playtest(a) -> int:
     # parallel wave produced a green PASS reported under the *other* plan's
     # name. A false green is the worst failure this system can produce, and
     # `/gd:run` dispatches parallel waves by design.
-    run_id = "%d-%s" % (os.getpid(), uuid.uuid4().hex[:8])
     inbox = proj / ".gd_out" / "_inbox"
     inbox.mkdir(parents=True, exist_ok=True)
     plan_rel = "_inbox/%s-%s.json" % (stem, run_id)
@@ -2026,7 +2067,7 @@ def cmd_playtest(a) -> int:
             "res://addons/gd_harness/gd_playtest.tscn",
             "--",
             "--plan=res://.gd_out/" + plan_rel,
-            "--out=res://.gd_out/" + stem]
+            "--out=res://.gd_out/%s/%s" % (stem, run_id)]
 
     t0 = time.time()
     r = run(cmd, timeout=a.timeout)
@@ -2128,6 +2169,12 @@ def cmd_playtest(a) -> int:
     runtime_errors = [ln.strip() for ln in out.splitlines()
                       if "SCRIPT ERROR" in ln or "Parse Error" in ln
                       or "USER ERROR" in ln][:20]
+    # Diagnostics the scene printed for itself. Without this the only way to
+    # surface a measured number was to add a check whose real purpose was to
+    # print it - which pushes measurement into the gate, where a loose bound is
+    # invisible. `GDLAB ` prefixed lines land here verbatim.
+    verdict["log"] = [ln.strip()[len("GDLAB "):] for ln in out.splitlines()
+                      if ln.strip().startswith("GDLAB ")][:200]
     verdict["runtime_errors"] = runtime_errors
     verdict["budget_fails"] = fails
     verdict["ok"] = bool(verdict.get("passed")) and not fails and not runtime_errors
@@ -2146,6 +2193,12 @@ def cmd_playtest(a) -> int:
         print("    [FAIL] runtime: " + e[:160])
     if perf:
         print("  perf      " + json.dumps(perf))
+    if verdict["log"]:
+        print("  log       %d line(s) from the scene:" % len(verdict["log"]))
+        for ln in verdict["log"][:8]:
+            print("            " + ln[:150])
+        if len(verdict["log"]) > 8:
+            print("            ... %d more in verdict.json" % (len(verdict["log"]) - 8))
     if verdict["shot_files"]:
         print("  shots     %d in %s" % (len(verdict["shot_files"]), verdict["shots_dir"]))
         print("            -> hand these to gd-critic; a builder never grades its own frames")

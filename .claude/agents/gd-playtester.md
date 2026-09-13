@@ -44,6 +44,13 @@ was wrong or the objective was.
   through the floor and being launched into orbit. A one-sided check catches
   half the bugs.
 - **One check, one claim.** A failing check should tell you what broke.
+- **Press only part of a multi-press interaction.** Your plans press exactly the
+  keys you list, so they prove the machine's input path, not the player's. If
+  asking someone takes `interact` then `confirm`, write a plan that presses
+  `interact` alone and asserts nothing was charged and the UI did not claim it
+  was. 220 passing checks across 18 plans once missed a broken core loop for
+  exactly this reason — write a `partial_input.json` for every interaction that
+  takes more than one press.
 - **Include a negative** - something that should not happen. Most regressions
   are things that started happening.
 - **Screenshot before and after the interesting moment**, not during. A frame

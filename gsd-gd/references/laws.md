@@ -44,6 +44,20 @@ a wish. Write the gate into the job file first, then build.
 - **Human**: the last gate is always a person. The two automated passes exist to
   make sure the person's attention is spent on taste, not on catching crashes.
 
+**And know what a gate cannot prove.** A playtest plan presses exactly the keys
+it lists, so it proves *the machine's input path*, never the player's. A phase
+once reached a green gate on **220 checks across 18 plans**, with two audit jobs
+specifically hunting checks that pass for the wrong reason — and a human played
+it for five minutes and found the core loop broken in three ways, every one
+invisible to every gate. The cause was simple: asking a crew member took two
+presses, every plan pressed both, and no plan modelled the player who presses
+the first, reads *"-15 faith"*, and sees nothing happen.
+
+So: **write plans that press only part of an interaction.** A gate that only
+ever performs complete, correct input is a gate that certifies the happy path
+and nothing else. And never treat a green gate as a substitute for the human —
+this is why the third clause of this law is not optional.
+
 ## 6. A builder never grades its own work
 
 The agent that made the thing is the worst possible judge of it — it knows what

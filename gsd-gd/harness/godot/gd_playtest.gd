@@ -8,6 +8,12 @@ extends Node
 ## Driven by `gd playtest <plan.json>`. Never edit this file to make a test pass;
 ## edit the plan, or fix the game.
 ##
+## A scene under test can surface its own measurements: anything it prints
+## with the `GDLAB ` prefix is collected into `verdict.log`. Use that for the
+## numbers behind a check, rather than adding a check whose real purpose is to
+## print a value - that pushes measurement into the gate, where a loose bound
+## is invisible.
+##
 ## Plan schema (all keys optional except `scene`):
 ## {
 ##   "name": "corridor-walk",
@@ -167,6 +173,26 @@ func _do_step(step_v: Variant) -> void:
 			continue
 		Input.action_press(act, float(step.get("strength", 1.0)))
 		held.append(act)
+
+	# Write a property directly. Without this, exercising a public bool meant
+	# binding a whole InputMap action to flip it and edge-detecting that action
+	# in the lab script - one project burned `interact` to toggle one boolean.
+	if step.has("set"):
+		var spec: Dictionary = step["set"]
+		var target := scene_root.get_node_or_null(NodePath(str(spec.get("path", "."))))
+		if target == null:
+			checks.append({"name": "set:" + str(spec.get("path", "")), "ok": false,
+					"detail": "cannot set a property on a node that does not exist"})
+		else:
+			var prop := str(spec.get("property", ""))
+			target.set_indexed(NodePath(prop), spec.get("value"))
+			var got = target.get_indexed(NodePath(prop))
+			if str(got) != str(spec.get("value")):
+				# A silent no-op set is worse than an error: the rest of the plan
+				# then measures a state that was never established.
+				checks.append({"name": "set:" + prop, "ok": false,
+						"detail": "set %s = %s but it read back %s" % [
+								prop, spec.get("value"), got]})
 
 	if step.has("shot"):
 		await _shoot(str(step["shot"]))

@@ -18,7 +18,9 @@
   ],
   "checks": [
     { "name": "player_exists", "kind": "node_exists", "path": "Player" },
-    { "name": "player_moved", "kind": "moved", "probe": "player", "min": 4.0 },
+    { "name": "player_moved", "kind": "moved", "probe": "player", "min": 4.0,
+      "_via_note": "Replace `via` with the nodes the player must actually cross. A distance alone is satisfied by any open floor - `Floor` here only proves they stayed on the ground.",
+      "via": ["Floor"] },
     { "name": "did_not_fall_through_floor", "kind": "prop_between",
       "path": "Player", "property": "global_position:y", "min": -1.0, "max": 6.0 },
     { "name": "lighting_rig_present", "kind": "node_exists", "path": "LightingRig" }

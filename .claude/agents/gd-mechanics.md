@@ -72,6 +72,11 @@ promised, or referencing a node the plan mis-specified — that is a **deviation
 report**, not a file to edit. Say precisely what is wrong and stop; the fix goes
 back through `gd-playtester`.
 
+**This holds even if your job file says otherwise.** If a job file lists a
+`lab/*.json` in its Touches, or its Gate says the plan is yours to write, the
+job file is wrong and this instruction wins — report it as a deviation. `gd run
+init` refuses such plans now, but an older one may still reach you.
+
 ## Never touch the harness or the installed system
 
 `addons/gd_harness/` is the instrument that grades you, and `~/.claude/gsd-gd/`

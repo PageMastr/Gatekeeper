@@ -15,6 +15,9 @@ The phase is done when these are all green — not when the jobs are finished.
 - [ ] <observable outcome, verified by a named playtest plan or metric>
 - [ ] <…>
 - [ ] No budget regressions vs previous phase
+- [ ] A `partial_input` gate exists for every multi-press interaction — a gate
+      that only performs complete input certifies the happy path and nothing
+      else (see `references/playtest-recipes.md`)
 
 ## Phase gate
 

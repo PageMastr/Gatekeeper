@@ -1608,3 +1608,71 @@ commands.
 4. paper-boat's `_push_soak_to_hull()` is genuinely missing. Its own `gd check`
    gate will catch it; noted only so it is not mistaken for a system fault next
    sweep.
+
+---
+
+# Findings sweep — 2026-09-13 14:0xZ · all 7 open system findings fixed
+
+Installed system: `a705394370eb`. Seven open findings across four games, all fixed and
+verified. Two were false-passes; one of those I had introduced myself.
+
+| # | game | severity | finding | fix |
+|---|---|---|---|---|
+| E.3 | henhouse | **false-pass** | `gd check <scene.tscn>` returned green without checking that scene's embedded scripts | extraction no longer sits behind `if not a.files`; a named scene with no embedded script now says so instead of silently passing |
+| E.4 | paper-boat | **false-pass** | shots written to a plan-scoped dir, so two agents on one plan overwrote each other's frames | output is run-scoped: `.gd_out/<plan>/<run_id>/` |
+| E.13 | Ringfall | false-pass risk | a job file could hand a builder its own gate while the builder's brief forbade it, and nothing resolved which won | `gd run init` **refuses** a plan that puts `lab/*.json` in a non-playtester job's touches; precedence stated in both briefs |
+| E.14 | Ringfall | **false-pass** | a gate proves the machine's input path, never the player's | `partial_input.json` is now a required greybox plan; Law 5 states the limit |
+| E.1 | henhouse | friction | the harness could press actions but not write a property | `{"set": {...}}` step, with a read-back check so a silent no-op fails |
+| E.4 | henhouse | friction | a lab's `print()` output went nowhere | `GDLAB `-prefixed lines are collected into `verdict.log` and echoed |
+| E.3 | paper-boat | friction | `gd-critic` was asked for a verdict file it had no tool to write | granted `Write`, scoped to its own critique file and nothing else |
+
+## E.14 is the most important finding of the exercise
+
+> A playtest plan can only assert what happens when the harness presses every
+> key the plan lists — so a gate proves the machine's input path, never the
+> player's.
+
+Ringfall reached a green phase gate on **220 checks across 18 plans**, with two
+audit jobs specifically hunting checks that pass for the wrong reason. A human
+then played it for five minutes and the core loop was broken in three ways,
+every one invisible to every gate.
+
+The cause is embarrassing in its simplicity: asking a crew member takes two
+presses — `interact` arms and *displays* the cost, `confirm` charges it. Every
+plan pressed both. No plan modelled the player who presses `interact`, reads
+*"-15 faith"*, and sees nothing happen.
+
+**This is Law 5's third clause being vindicated, not violated.** The human gate
+is in the system precisely because a gate certifies the scripted path and
+nothing else. What was missing was the *admission* of that limit, and a plan
+type that probes it:
+
+- `partial_input.json` joins `loop_complete` and `can_lose` as a required
+  greybox plan — press only the first part of a multi-press interaction, then
+  assert no cost was charged, no state half-applied, and the UI did not claim
+  otherwise.
+- Law 5 now states the limit with this incident as its evidence.
+- `gd-playtester`'s brief and the `PLAN.md` definition-of-done both require it.
+
+No amount of check-writing would have found this. A person playing for five
+minutes did.
+
+## Two things the sweep caught in my own work
+
+- **I had fixed half of the E.10 race.** Loop 5 made the plan inbox unique per
+  run and left the *output* directory plan-scoped. paper-boat watched a shots
+  directory refill from 1 to 6 files with different bytes while it was reading
+  them — a critic could be handed another run's frames. Both halves are closed
+  now.
+- **The shipped `minute_one.json` failed my own new lint rule.** The distance-only
+  `moved` check I made an error in loop 5 was still in the template every project
+  starts from, so `gd playtest minute_one --lint` exited 1 on a fresh `gd init`.
+  Fixed with a real `via` and a note explaining what to replace it with. A
+  scaffold that cannot pass its own gates teaches the wrong lesson on day one.
+
+## State
+
+All 13 findings across the four games are now `fixed` or workaround notes; the
+empty template rows that were being miscounted are gone. Clean-slate regression:
+doctor, version, config, models, check, harness, playtest (`--lint`, `--smoke`,
+full) and asset all green; `roadmap` correctly red on an unfilled template.

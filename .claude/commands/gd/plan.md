@@ -285,6 +285,14 @@ Its own gate is lint, which needs no game to exist yet:
 If a later job finds its gate genuinely wrong, that is a deviation to report —
 the fix goes back through `gd-playtester`, not into the builder's own hands.
 
+**Never put a `lab/*.json` path in a builder's `touches`.** Two projects
+independently hit the same contradiction: a job file told a builder the plan was
+"yours to write" while the builder's own brief forbade exactly that, and nothing
+in the system said which won. `gd run init` now refuses a plan that does this,
+so the precedence is settled where it cannot be missed: **the agent brief wins,
+builders never author gates.** A builder's `touches` may name the code under
+test; the plan that grades it belongs to the gates job.
+
 ## Waves
 
 Group by dependency, and state the disjointness analysis **explicitly** — not

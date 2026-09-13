@@ -68,16 +68,25 @@ plane is a door. Placeholders are honest; a half-finished asset is not.
 
 ### 4. Write the gates
 
-Two plans in `game/<slug>/lab/`:
+Three plans in `game/<slug>/lab/`:
 
 - `loop_complete.json` — drives one entire turn of the loop, asserts the state
   change happened.
 - `can_lose.json` — drives the player into the failure state deliberately and
   asserts it occurred.
+- `partial_input.json` — for every interaction needing more than one press,
+  presses **only the first part** and asserts the game does not lie about it:
+  no cost charged, no half-applied state, no UI claiming it happened.
+
+That third plan exists because a phase once passed a green gate on **220 checks
+across 18 plans** — with two audit jobs hunting checks that pass for the wrong
+reason — and then failed a five-minute human playtest in three ways. Every plan
+pressed the whole interaction; none modelled the player who pressed half of it.
 
 ```bash
 python gsd-gd/bin/gd.py playtest loop_complete
 python gsd-gd/bin/gd.py playtest can_lose
+python gsd-gd/bin/gd.py playtest partial_input
 python gsd-gd/bin/gd.py playtest minute_one
 ```
 

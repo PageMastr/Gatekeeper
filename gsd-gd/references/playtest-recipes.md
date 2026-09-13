@@ -28,6 +28,24 @@ frame, and writes `verdict.json`.
 Steps run pinned at 60 fps, so `"frames": 120` and `"seconds": 2.0` are the same
 thing. Use `seconds` for readability.
 
+**A step can write a property**, not only press actions:
+
+```json
+{ "set": {"path": "Fox", "property": "carrying", "value": true} }
+```
+
+Use it to establish a state the gate needs. The alternative — binding an
+InputMap action to flip a boolean and edge-detecting it in the lab script — burns
+a whole action to set one flag. A `set` that does not read back is reported as a
+failed check, because a silent no-op means the rest of the plan measures a state
+that was never established.
+
+**A scene can surface its own measurements.** Anything it prints with the
+`GDLAB ` prefix is collected into `verdict.log` and echoed by `gd playtest`. Use
+that for the numbers behind a check, rather than adding a check whose real
+purpose is to print a value — that pushes measurement into the gate, where a
+loose bound is invisible.
+
 `probes` are sampled every frame during steps; that is how `moved` knows path
 length rather than just start-to-end displacement (a player who walks in a
 circle has travelled but not displaced — usually you want to know both, and the
@@ -80,6 +98,27 @@ closes `/gd:greybox`.
 **`can_lose.json`** — drive the player into the failure state deliberately and
 assert it happened. A loop you cannot lose is not a loop, and this check is
 routinely forgotten.
+
+**`partial_input.json`** — the one that catches what 220 passing checks did not.
+For every interaction that takes more than one press, press **only the first
+part** and assert the game is honest about it: no cost charged, no state half
+applied, and the UI not claiming something happened.
+
+This exists because a phase passed a green gate on 18 plans and then failed a
+five-minute human playtest in three ways. Every plan pressed both `interact`
+*and* `confirm`; none modelled the player who presses `interact`, reads
+*"-15 faith"*, and sees nothing happen. A plan that only ever performs complete
+input proves the happy path and nothing else.
+
+```json
+{"name": "partial_input",
+ "steps": [{"actions": ["interact"], "seconds": 0.2, "label": "armed_only"},
+           {"wait": 90, "label": "window_expired"}],
+ "checks": [{"name": "no_cost_charged", "kind": "probe_at",
+             "probe": "mika_faith", "label": "window_expired", "equals": 100},
+            {"name": "prompt_cleared", "kind": "expr",
+             "expr": "get_node('Hud').prompt == ''"}]}
+```
 
 **`lab/<system>.json`** — one system, isolated. Gait, camera, weapon feel. Small
 scene, deterministic, fast.
