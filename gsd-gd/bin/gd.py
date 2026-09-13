@@ -607,6 +607,7 @@ def harness_drift(proj: Path) -> dict:
     out["extra"] = sorted(p.name for p in dst.glob("*")
                           if p.is_file() and p.name not in names
                           and not p.name.endswith(".uid")
+                          and not p.name.endswith(".local")   # our own backups
                           and p.name != ".installed_hash")
     return out
 
@@ -1229,7 +1230,7 @@ def source_fingerprint(proj: Path) -> str:
     return h.hexdigest()[:12]
 
 
-def archive_verdict(d: Path, jid: str, attempt: int, src=None):
+def archive_verdict(d: Path, jid: str, attempt: int, src=None, want_plan=None):
     """Copy the verdict that graded an attempt into <phase>/verdicts/.
 
     `gd phase new` has always created that directory and nothing ever wrote to
@@ -1249,7 +1250,22 @@ def archive_verdict(d: Path, jid: str, attempt: int, src=None):
             found = sorted(list(proj.glob(".gd_out/*/*/verdict.json"))
                             + list(proj.glob(".gd_out/*/verdict.json")),
                            key=lambda p: p.stat().st_mtime, reverse=True)
-            cand = found[0] if found else None
+            # "Most recent" is whoever finished last, which in a parallel wave is
+            # usually a wave-mate: one job's `verdicts/04-attempt04.json` turned
+            # out to hold another job's `blockout_walk` run. Match the verdict to
+            # THIS job's gate instead, and archive nothing rather than something
+            # wrong.
+            if want_plan:
+                for f in found:
+                    try:
+                        v = json.loads(f.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        continue
+                    if want_plan in (str(v.get("plan", "")), str(v.get("plan_name", ""))):
+                        cand = f
+                        break
+            elif found:
+                cand = found[0]
     if cand is None:
         return None
     dest = dest_dir / ("%s-attempt%02d.json" % (jid, attempt))
@@ -1377,7 +1393,15 @@ def cmd_run(a) -> int:
         # Archive the verdict that graded this attempt. `.gd_out/<plan>/` only
         # ever holds the last run, so without this the per-attempt history the
         # /gd:ship retro asks for does not exist anywhere.
-        archived = archive_verdict(d, jid, j["total_attempts"] + 1, a.verdict)
+        # The plan this job's gate names, so the archived verdict is provably its
+        # own. `gd playtest <name>` / `playtest lab/<name>.json` both reduce to
+        # <name>.
+        gm = re.search(r"playtest\s+(?:lab/)?([A-Za-z0-9_\-]+)", j.get("gate", ""))
+        archived = archive_verdict(d, jid, j["total_attempts"] + 1, a.verdict,
+                                   want_plan=(gm.group(1) + ".json") if gm else None)
+        if archived is None and not a.verdict:
+            print("  [warn] no verdict matching this job's gate was found - nothing "
+                  "archived. Pass --verdict <path> to be explicit.")
         j["total_attempts"] += 1
         j["attempts_at_tier"] += 1
         j["history"].append({"at": now(), "model": j["model"],
@@ -1892,8 +1916,13 @@ def project_budget() -> dict:
             "source": str(project_config_path()) if over else str(CONFIG)}
 
 
+# Must match the `match kind:` arms in harness/godot/gd_playtest.gd. When
+# `probe_min`/`probe_max`/`probe_at` were added, this set was not updated, so
+# `--lint` rejected three kinds the harness itself implements - a false failure
+# that pushed plans back to `expr` for things that had a typed kind.
 PLAN_CHECK_KINDS = {"moved", "still", "node_exists", "prop_between", "prop_gt",
-                    "prop_lt", "prop_eq", "expr"}
+                    "prop_lt", "prop_eq", "expr",
+                    "probe_min", "probe_max", "probe_at"}
 
 
 def project_autoloads(proj: Path) -> list:
@@ -1975,6 +2004,19 @@ def lint_plan(plan: dict, proj: Path) -> dict:
                           "mean it." % name)
         if kind in ("prop_between", "prop_gt", "prop_lt", "prop_eq") and not c.get("path"):
             errors.append("check '%s' has no `path`" % name)
+        if kind in ("probe_min", "probe_max", "probe_at") and c.get("probe") not in probes:
+            errors.append("check '%s' references probe '%s', which is not declared"
+                          % (name, c.get("probe")))
+        if kind == "probe_at" and not c.get("label"):
+            errors.append("check '%s' is a probe_at with no `label` - it must name the "
+                          "step whose end you mean" % name)
+        if kind == "probe_at" and c.get("label"):
+            labels = {str(st.get("label")) for st in plan.get("steps", [])
+                      if isinstance(st, dict) and st.get("label")}
+            if str(c["label"]) not in labels:
+                errors.append("check '%s' waits on label '%s', but no step has it. "
+                              "Labels present: %s"
+                              % (name, c["label"], ", ".join(sorted(labels)) or "(none)"))
         if kind == "expr" and not str(c.get("expr", "")).strip():
             errors.append("check '%s' has an empty `expr`" % name)
     if not plan.get("checks"):
@@ -2013,6 +2055,18 @@ def cmd_playtest(a) -> int:
 
     drift_before = harness_drift(proj)
     harness_info = install_harness(proj)
+    # Upgrading the instrument that grades you, mid-job, in silence, is not
+    # acceptable: a project had its harness replaced under a running job and the
+    # only trace was a changed hash. Say so, loudly, in the output and the verdict.
+    harness_upgraded = None
+    if drift_before.get("project") and drift_before["project"] != harness_info["hash"]:
+        harness_upgraded = {"from": drift_before["project"], "to": harness_info["hash"],
+                            "was": drift_before.get("status")}
+        print("  [warn] harness upgraded %s -> %s (was %s) before this run."
+              % (harness_upgraded["from"], harness_upgraded["to"],
+                 harness_upgraded["was"]))
+        print("         Verdicts from before this run were produced by a different "
+              "grader.")
     # install_harness() just rewrote the harness scripts, which makes Godot's
     # global class cache stale - leave it and the run sprays
     # `Could not find type "GDLightingRig"` and fails on runtime_errors.
@@ -2126,6 +2180,8 @@ def cmd_playtest(a) -> int:
     verdict["harness_hash"] = harness_info["hash"]
     _fp = system_fingerprint()
     verdict["system"] = {"version": _fp["version"], "hash": _fp["hash"]}
+    if harness_upgraded:
+        verdict["harness_upgraded"] = harness_upgraded
     if cache_state["reimported"]:
         verdict["class_cache_reimported"] = cache_state
     if drift_before["modified"]:

@@ -530,6 +530,28 @@ func _finish() -> void:
 	if finished:
 		return
 	finished = true
+	# A run where nothing was actually asserted is NOT a pass. `passed` used to
+	# start true and only flip on a failing check, so a plan with no checks - or
+	# one whose checks all failed to evaluate - returned PASS with screenshots
+	# attached. That is the worst failure this harness can produce: a gate that
+	# certifies nothing while looking exactly like one that certified everything.
+	#
+	# Only rows carrying a `kind` came from the plan; `input_action:` / `shot:` /
+	# `timeout` / `harness` rows are generated here and do not count as assertions.
+	var evaluated := 0
+	for c in checks:
+		if c.has("kind"):
+			evaluated += 1
+	if evaluated == 0 and not plan.get("checks", []).is_empty():
+		checks.append({"name": "no_checks_evaluated", "ok": false,
+				"detail": "the plan declares %d check(s) but none were evaluated - "
+						% plan.get("checks", []).size()
+						+ "the run asserted nothing"})
+	elif evaluated == 0:
+		checks.append({"name": "no_checks_declared", "ok": false,
+				"detail": "this plan declares no checks, so it can only prove the "
+						+ "harness boots. Use `gd playtest --smoke` if that is what "
+						+ "you meant; otherwise the run asserted nothing."})
 	var passed := true
 	for c in checks:
 		if not c.get("ok", false):

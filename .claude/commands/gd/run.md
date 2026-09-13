@@ -170,6 +170,12 @@ All jobs passed, the phase gate is green, **and the source has not moved since
 it was green.** The phase is done. Stop the loop and hand back: `/gd:playtest`
 for the human pass, then `/gd:ship`.
 
+**Say explicitly that `greybox_passed` is still `no` if it is**, and that
+`/gd:playtest` is what sets it. You never set it yourself — you have no way to
+know whether a person played it.  A driven phase has no other route to that
+flag, and a project that does not know it needs `/gd:playtest` will sit on
+`greybox_passed: no` indefinitely while later stages refuse asset work.
+
 If the gate was green but the source has changed since, you get `phase_gate`
 again with the two fingerprints and a reason — re-run it. A gate result only
 describes the code it ran against, and `phase_gate: green` in STATE was

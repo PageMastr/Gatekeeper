@@ -1676,3 +1676,109 @@ All 13 findings across the four games are now `fixed` or workaround notes; the
 empty template rows that were being miscounted are gone. Clean-slate regression:
 doctor, version, config, models, check, harness, playtest (`--lint`, `--smoke`,
 full) and asset all green; `roadmap` correctly red on an unfilled template.
+
+---
+
+# Loop 12 — 2026-09-13 15:14Z · two games past the greybox, and a gate that certified nothing
+
+System now `51d390ce31db`.
+
+| game | beat | phase | jobs | next | findings |
+|---|---|---|---|---|---|
+| Ringfall | **build** | **02-ring-and-faith** | 8, 1 running | `in_flight` | 5, 0 open |
+| the-last-lamp | **build** | **02-presence-and-devices** | 4, 1 running | `in_flight` | **15**, 0 open |
+| henhouse | greybox | 01 | 9, 8 passed | dispatch job 09 | 6, 1 open |
+| paper-boat | greybox | 01 | 6, 6 passed | **`ship`** | 5, 0 open |
+
+**Two games are past the greybox.** Ringfall fixed the E.14 faith bugs the human
+playtest found and re-verified — `faith fixes verified: 19 plans, 241 checks,
+0 failures` — then armed stage 02. the-last-lamp set `greybox_passed: yes` and
+planned `02-presence-and-devices`. paper-boat reached the `ship` terminal state
+added in loop 11, after a critique round 2 accept.
+
+Law 1 checked and intact: Ringfall's stage 02 is all `gd-mechanics` and
+`gd-playtester`, no `gd-modeler`, so no asset work is running against
+`greybox_passed: no`.
+
+## E.9 — a run that asserted nothing reported PASS, with screenshots
+
+the-last-lamp's worst finding, and it reproduced first try:
+
+```
+plan with "checks": []  ->  verdict PASS, exit 0, 1 shot attached
+```
+
+`passed` started `true` and only flipped on a failing check, so a plan with no
+checks — or one whose checks all failed to evaluate — returned green **looking
+exactly like a gate that had certified everything.** That is the worst failure
+this harness can produce, and it had been there since the first version.
+
+Fixed in the harness: only rows carrying a `kind` count as assertions
+(`input_action:`, `shot:`, `timeout`, `harness` are generated, not asserted). A
+run with zero of them now fails with which case it was — *"declares no checks"*
+versus *"declares N check(s) but none were evaluated"*. `--smoke` still passes
+legitimately, which is the one case where asserting nothing is the point.
+
+## E.2 — my own loop-7 additions were rejected by my own linter
+
+`probe_min`, `probe_max` and `probe_at` went into the harness in loop 7 and
+never into `PLAN_CHECK_KINDS`, so `--lint` **false-failed three kinds the
+harness implements** — pushing plans back to `expr` for things that had a typed
+kind. The set now carries all eleven, with a comment saying it must match the
+`match kind:` arms.
+
+While there, `--lint` gained real validation for them: a `probe_at` with no
+`label`, or naming a label no step has, is now an error that lists the labels
+present.
+
+## E.8 — a job could archive a wave-mate's verdict
+
+> `verdicts/04-attempt04.json` is a `blockout_walk` verdict
+
+`archive_verdict` took the *most recently modified* verdict, which in a parallel
+wave is whoever finished last. So a job's permanent record of how it was graded
+could be another job's run. Now it reads the job's own gate, extracts the plan
+name, and matches `verdict.plan`; if nothing matches it archives **nothing** and
+says so, rather than filing something wrong.
+
+## E.5 — the grader was being upgraded mid-job, silently
+
+`gd playtest` reinstalls the harness on every run, so a stale project was
+silently brought to current *underneath a running job*. Now announced in the
+output and recorded in the verdict as
+`harness_upgraded: {from, to, was: stale}` — verified live on this loop's own
+test run.
+
+## E.6 — my own backups were permanent noise
+
+The `.local` files `install_harness` writes to preserve a local edit were being
+reported as `extra` by `gd harness --check` forever. Excluded.
+
+## 34 — a driven phase had no route to `greybox_passed`
+
+Found by sweep, not by a project. Ringfall passed all five gates, had a human
+play it, fixed the three bugs that playtest found, re-verified 241 checks — and
+still read `greybox_passed: no`, because the only command that sets it is
+`/gd:greybox`, which a `/gd:run`-driven phase never invokes.
+
+That flag gates all future asset work, so the failure mode is a project that
+reaches stage 05 and cannot understand why `gd-modeler` jobs are refused.
+
+`/gd:playtest` now owns it — it is the beat where the human actually plays, and
+the conditions are stated: green gate **and** a person played it **and** they
+answered yes to *would I press start again?* `/gd:run`'s `ship` action now says
+explicitly that the flag is still `no` and which command sets it.
+
+## Where the findings are coming from
+
+Twenty-two findings filed across four games; **one still open**, and that one is
+project-side. Of the ones that were system faults, the split by who found them:
+
+| found by | false-pass | false-fail | friction |
+|---|---|---|---|
+| projects under load | 4 | 3 | 8 |
+| me, sweeping | 2 | 0 | 3 |
+
+Every single `false-pass` — the only class that invalidates work already
+accepted — came from a project running the system in anger. None came from
+inspecting it.

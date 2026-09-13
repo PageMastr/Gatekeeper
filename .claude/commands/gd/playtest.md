@@ -70,6 +70,29 @@ corridor feel as long as it should?*
 | the loop is not fun | `/gd:frame` — the fix is in `CORE_LOOP.md`, not the code |
 | harness produced no verdict | the harness scene failed to load; check the log tail for a parse error |
 
+## Set `greybox_passed`, if this was the greybox
+
+**This is the only beat that can set it, and for a driver-run phase it is the
+only place it will happen.** `/gd:greybox` also sets it, but a phase driven by
+`/gd:run` never invokes that command — so a project can pass all its gates, be
+played by a human, have the found bugs fixed and re-verified, and still read
+`greybox_passed: no` with no obvious route to `yes`. Observed exactly that.
+
+Set it when **all three** hold:
+
+1. the phase gate is green (`gd run status` → `phase_gate: green`),
+2. a person has actually played it, and
+3. they answered *yes* to **would I press start again?**
+
+```bash
+python gsd-gd/bin/gd.py state greybox_passed yes
+```
+
+If the person said no, leave it `no` and say so — the fix is in
+`.planning/CORE_LOOP.md`, not the code. A green gate is necessary and not
+sufficient; that is the whole point of Law 5's third clause, and a gate that
+certifies the scripted path cannot see what a player does with half of it.
+
 ## Finish
 
 ```bash
