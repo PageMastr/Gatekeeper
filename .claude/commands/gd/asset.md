@@ -6,8 +6,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 
 # /gd:asset — one asset, generated and gated
 
-@gsd-gd/references/blender-patterns.md
-@gsd-gd/references/laws.md
+@gatekeeper/references/blender-patterns.md
+@gatekeeper/references/laws.md
 
 Asset: **$ARGUMENTS**
 
@@ -18,10 +18,10 @@ wrong you fix one line and run it again.
 ## 1. Spec before script
 
 Write `.planning/phases/NN/assets/<slug>.md` from
-`gsd-gd/templates/ASSET_SPEC.md`. It must pin down:
+`gatekeeper/templates/ASSET_SPEC.md`. It must pin down:
 
 - **class** — prop / hero_prop / environment_module / character (this sets the
-  tri budget from `gsd-gd/config.json`)
+  tri budget from `gatekeeper/config.json`)
 - **dimensions in metres**, with tolerance
 - **snap grid** compliance if it is a kit module (0.25 m)
 - **origin convention** — at base centre for anything that sits on ground
@@ -54,7 +54,7 @@ Reproducibility is the whole point.
 ## 3. Build it
 
 ```bash
-python gsd-gd/bin/gd.py asset generators/<name>.py
+python gatekeeper/bin/gd.py asset generators/<name>.py
 ```
 
 This runs Blender headless, enforces the contracts, exports the GLB into
@@ -71,7 +71,7 @@ Place it in the lab scene and render it under the game's real lighting preset �
 an asset judged under neutral light is not judged.
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/asset_<name>.json
+python gatekeeper/bin/gd.py playtest lab/asset_<name>.json
 ```
 
 (`/gd:lab` builds that plan and scene if they do not exist.)
@@ -91,7 +91,7 @@ If any part of this came from outside — a mesh, a texture, a mocap clip — lo
 the moment it lands:
 
 ```bash
-python gsd-gd/bin/gd.py credits "<asset>" "<source>" "<license>" --url <url> --attribution "<text>"
+python gatekeeper/bin/gd.py credits "<asset>" "<source>" "<license>" --url <url> --attribution "<text>"
 ```
 
 Then decimate it in stages to match the game's poly density (`gd.decimate` at

@@ -9,7 +9,7 @@ color: red
 You are the independent judge. You did not build this and you must not be told
 how it was built.
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 ## Why you exist
 

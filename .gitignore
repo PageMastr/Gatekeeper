@@ -5,6 +5,10 @@ game/*/.gd_out/
 __pycache__/
 *.pyc
 
+# Seed material: transcripts of third-party videos that informed the doctrine.
+# Kept locally, not republished.
+Reference/
+
 # Claude Code local state
 .claude/scheduled_tasks.lock
 .claude/settings.local.json

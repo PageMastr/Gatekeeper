@@ -1,4 +1,4 @@
-# GSD-GameDev Blender bootstrap.
+# Gatekeeper Blender bootstrap.
 #
 # Invoked by `gd blender` / `gd asset` as:
 #   blender -b --factory-startup --python bootstrap.py -- <generator.py> [args...]

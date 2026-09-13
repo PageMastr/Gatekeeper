@@ -11,7 +11,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 > pass. Use `/gd:frame` when the contracts alone need revisiting — the loop is
 > not working, or the palette is fighting the assets — without re-planning.
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 Read the laws above. This beat exists to satisfy Law 1 (the loop before the look)
 and Law 8 (the Color Bible is a contract). Nothing else runs until both are
@@ -22,8 +22,8 @@ Idea / reference from the user: **$ARGUMENTS**
 ## Before you start
 
 ```bash
-python gsd-gd/bin/gd.py doctor
-python gsd-gd/bin/gd.py state
+python gatekeeper/bin/gd.py doctor
+python gatekeeper/bin/gd.py state
 ```
 
 If `.planning/` does not exist yet, ask for a project name and run
@@ -64,8 +64,8 @@ identity more than hex does.
 
 Then:
 ```bash
-python gsd-gd/bin/gd.py palette      # regenerates res://scripts/palette.gd
-python gsd-gd/bin/gd.py state palette_locked yes
+python gatekeeper/bin/gd.py palette      # regenerates res://scripts/palette.gd
+python gatekeeper/bin/gd.py state palette_locked yes
 ```
 
 ### 3. `.planning/CORE_LOOP.md`
@@ -98,11 +98,11 @@ The first 60 seconds as a testable sequence, in `CORE_LOOP.md`, then written as
 `game/<slug>/lab/minute_one.json` (`gd init` seeds a starting version — replace
 its steps with the real ones).
 
-@gsd-gd/references/playtest-recipes.md
+@gatekeeper/references/playtest-recipes.md
 
 Then prove the harness runs against it, even if it fails on content:
 ```bash
-python gsd-gd/bin/gd.py playtest minute_one
+python gatekeeper/bin/gd.py playtest minute_one
 ```
 A harness that does not run is a gate that does not exist.
 
@@ -118,8 +118,8 @@ Do not ask about things you can pick sensibly and note as an assumption.
 ## Finish
 
 ```bash
-python gsd-gd/bin/gd.py state beat plan
-python gsd-gd/bin/gd.py state loop_locked yes
+python gatekeeper/bin/gd.py state beat plan
+python gatekeeper/bin/gd.py state loop_locked yes
 ```
 
 Update STATE.md's "What just happened" / "What is next", then report to the user:

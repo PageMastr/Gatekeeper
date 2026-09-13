@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Install GSD-GameDev at user scope, so /gd:* works in any Claude Code session.
+"""Install Gatekeeper at user scope, so /gd:* works in any Claude Code session.
 
     python install.py              # copy into ~/.claude
-    python install.py --link       # junction/symlink gsd-gd/ instead of copying
+    python install.py --link       # junction/symlink gatekeeper/ instead of copying
     python install.py --dry-run    # show what would happen, change nothing
     python install.py --no-setup   # skip the toolchain wizard
     python install.py --uninstall  # remove it again
 
 What it installs:
 
-  ~/.claude/gsd-gd/          the system itself - config, templates, lib, harness,
+  ~/.claude/gatekeeper/          the system itself - config, templates, lib, harness,
                              bin/gd.py, bin/gddoc.py, references
   ~/.claude/commands/gd/     the slash commands
   ~/.claude/agents/          the gd-* agents
@@ -18,15 +18,15 @@ What it installs:
 
 What it deliberately does NOT touch:
 
-  ~/.claude/gsd-gd.machine.json   this machine's Godot and Blender paths
-  ~/.claude/gsd-gd-cache/         the generated API index
+  ~/.claude/gatekeeper.machine.json   this machine's Godot and Blender paths
+  ~/.claude/gatekeeper-cache/         the generated API index
 
 Both live outside the payload precisely so that upgrading is safe. An install
 that silently unsets the user's engine path is indistinguishable from a broken
 release, and re-indexing 1000 classes on every upgrade is pure waste.
 
-Commands and agents are *rewritten* on the way in: every `python gsd-gd/bin/...`
-becomes an absolute path, and every `@gsd-gd/references/...` include becomes an
+Commands and agents are *rewritten* on the way in: every `python gatekeeper/bin/...`
+becomes an absolute path, and every `@gatekeeper/references/...` include becomes an
 explicit "read this absolute path" instruction. Relative paths only resolve when
 the cwd happens to be the repo, which is exactly what a user-scope install is
 not.
@@ -45,8 +45,8 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent
 HOME_CLAUDE = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
 
-SYS_NAME = "gsd-gd"
-MACHINE_CONFIG = HOME_CLAUDE / "gsd-gd.machine.json"
+SYS_NAME = "gatekeeper"
+MACHINE_CONFIG = HOME_CLAUDE / "gatekeeper.machine.json"
 PAYLOAD = [
     ("commands/gd", SRC / ".claude" / "commands" / "gd"),
     ("agents", SRC / ".claude" / "agents"),
@@ -56,8 +56,8 @@ PAYLOAD = [
 # subprocesses, so there is nothing machine-specific to allow here - which is
 # what lets one settings.json work on every machine.
 PERMS = [
-    "Bash(python ~/.claude/gsd-gd/bin/gd.py:*)",
-    "Bash(python ~/.claude/gsd-gd/bin/gddoc.py:*)",
+    "Bash(python ~/.claude/gatekeeper/bin/gd.py:*)",
+    "Bash(python ~/.claude/gatekeeper/bin/gddoc.py:*)",
 ]
 
 
@@ -69,8 +69,8 @@ def rewrite(text: str, sys_dir: Path) -> str:
     """Make a command/agent file work from any cwd."""
     p = str(sys_dir).replace("\\", "/")
     # 1. CLI invocations -> absolute
-    text = text.replace("python gsd-gd/bin/gd.py", 'python "%s/bin/gd.py"' % p)
-    text = text.replace("python gsd-gd/bin/gddoc.py", 'python "%s/bin/gddoc.py"' % p)
+    text = text.replace("python gatekeeper/bin/gd.py", 'python "%s/bin/gd.py"' % p)
+    text = text.replace("python gatekeeper/bin/gddoc.py", 'python "%s/bin/gddoc.py"' % p)
     # 2. @-includes -> an explicit read of an absolute path. An @-include is
     #    resolved relative to the project, so at user scope it would silently
     #    include nothing - the worst possible failure for a doctrine file.
@@ -78,10 +78,10 @@ def rewrite(text: str, sys_dir: Path) -> str:
         rel = mo.group(1)
         return ("**Read `%s/%s` before continuing** — required reading, not "
                 "optional context." % (p, rel))
-    text = re.sub(r"^@gsd-gd/(\S+)\s*$", to_read, text, flags=re.M)
+    text = re.sub(r"^@gatekeeper/(\S+)\s*$", to_read, text, flags=re.M)
     # 3. Any other bare reference to the repo-relative system path
-    text = text.replace("`gsd-gd/", "`%s/" % p)
-    text = text.replace("(gsd-gd/", "(%s/" % p)
+    text = text.replace("`gatekeeper/", "`%s/" % p)
+    text = text.replace("(gatekeeper/", "(%s/" % p)
     return text
 
 
@@ -132,7 +132,7 @@ def merge_settings(sys_dir: Path, dry: bool) -> list:
                     "permissions manually: " + ", ".join(PERMS)]
     perms = data.setdefault("permissions", {})
     allow = perms.setdefault("allow", [])
-    abs_perms = [x.replace("~/.claude/gsd-gd", str(sys_dir).replace("\\", "/"))
+    abs_perms = [x.replace("~/.claude/gatekeeper", str(sys_dir).replace("\\", "/"))
                  for x in PERMS]
     added = [x for x in abs_perms if x not in allow]
     notes = []
@@ -177,13 +177,13 @@ def run_setup(sys_dir: Path) -> bool:
 
 def install(a) -> int:
     sys_dir = HOME_CLAUDE / SYS_NAME
-    print("\nGSD-GameDev -> " + str(HOME_CLAUDE))
+    print("\nGatekeeper -> " + str(HOME_CLAUDE))
     if a.dry_run:
         print("  (dry run - nothing will be written)")
     print("")
 
     if not (SRC / SYS_NAME / "config.json").exists():
-        print("install.py must be run from the GSD-GameDev repo root", file=sys.stderr)
+        print("install.py must be run from the Gatekeeper repo root", file=sys.stderr)
         return 2
     if sys.version_info < (3, 10):
         print("Python 3.10 or newer is required (found %s)"
@@ -272,7 +272,7 @@ To pin the workspace explicitly, set GD_PROJECT to its path.
 
 def uninstall(a) -> int:
     sys_dir = HOME_CLAUDE / SYS_NAME
-    print("\nRemoving GSD-GameDev from " + str(HOME_CLAUDE) + "\n")
+    print("\nRemoving Gatekeeper from " + str(HOME_CLAUDE) + "\n")
     targets = [sys_dir, HOME_CLAUDE / "commands" / "gd",
                HOME_CLAUDE / "skills" / "godot-api"]
     for t in targets:
@@ -295,7 +295,7 @@ def uninstall(a) -> int:
     # system should not punish a reinstall, and neither file is harmful if the
     # system never comes back.
     if a.purge:
-        for t in (MACHINE_CONFIG, HOME_CLAUDE / "gsd-gd-cache"):
+        for t in (MACHINE_CONFIG, HOME_CLAUDE / "gatekeeper-cache"):
             if t.exists():
                 if not a.dry_run:
                     try:
@@ -313,9 +313,9 @@ def uninstall(a) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Install GSD-GameDev at user scope")
+    ap = argparse.ArgumentParser(description="Install Gatekeeper at user scope")
     ap.add_argument("--link", action="store_true",
-                    help="junction/symlink gsd-gd instead of copying, so repo edits take effect live")
+                    help="junction/symlink gatekeeper instead of copying, so repo edits take effect live")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-setup", action="store_true",
                     help="do not run the toolchain wizard")

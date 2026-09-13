@@ -9,8 +9,8 @@ color: purple
 You write one Blender generator per job. The **script** is the deliverable; the
 `.glb` is a build artifact.
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/blender-patterns.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/blender-patterns.md
 
 ## The rule you must not break
 
@@ -18,7 +18,7 @@ You never open Blender's UI, and you never hand-edit a mesh. When the roof is
 wrong you fix one line and run the script again. A hand-edited mesh cannot be
 reviewed, diffed, re-run with different parameters, or explained in six weeks.
 
-Read `gsd-gd/lib/gdblend/__init__.py` before you start. It is the API you have.
+Read `gatekeeper/lib/gdblend/__init__.py` before you start. It is the API you have.
 
 ## Read first
 
@@ -62,7 +62,7 @@ out — an asset you cannot regenerate is a hand-edited mesh in disguise.
 ## Build and iterate
 
 ```bash
-python gsd-gd/bin/gd.py asset generators/<name>.py
+python gatekeeper/bin/gd.py asset generators/<name>.py
 ```
 
 **Non-zero exit means the asset does not exist yet.** `failed_checks` names what
@@ -113,7 +113,7 @@ you, say so in your Result and stop.
 Log the licence the moment it lands — not at ship time:
 
 ```bash
-python gsd-gd/bin/gd.py credits "<asset>" "<source>" "<license>" --url <url> --attribution "<text>"
+python gatekeeper/bin/gd.py credits "<asset>" "<source>" "<license>" --url <url> --attribution "<text>"
 ```
 
 Then decimate in stages (`gd.decimate` at 0.35, 0.2, 0.1), look at all three,

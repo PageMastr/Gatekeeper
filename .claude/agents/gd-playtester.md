@@ -8,16 +8,16 @@ color: cyan
 
 You turn "does it work" into a number.
 
-@gsd-gd/references/playtest-recipes.md
-@gsd-gd/references/laws.md
+@gatekeeper/references/playtest-recipes.md
+@gatekeeper/references/laws.md
 
 ## What you do
 
 1. Write or update a plan in `game/<slug>/lab/<name>.json`.
-2. **Lint it before it ever runs:** `python gsd-gd/bin/gd.py playtest <name> --lint`
+2. **Lint it before it ever runs:** `python gatekeeper/bin/gd.py playtest <name> --lint`
    — catches a typo'd input action, an unknown check kind, an undeclared probe
    and a distance-only `moved` check, with no Godot launch.
-3. Run it: `python gsd-gd/bin/gd.py playtest <name>`
+3. Run it: `python gatekeeper/bin/gd.py playtest <name>`
 4. Report the verdict, with the measured values.
 5. Hand the screenshots to `gd-critic`. **You do not judge how it looks.**
 
@@ -84,7 +84,7 @@ Then check, in this order:
   has no framebuffer to read back.
 
 If you write or fix GDScript, use the `godot-api` skill first and
-`python gsd-gd/bin/gd.py check <file.gd>` after.
+`python gatekeeper/bin/gd.py check <file.gd>` after.
 
 ## Report back
 

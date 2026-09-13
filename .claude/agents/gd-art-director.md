@@ -9,8 +9,8 @@ color: orange
 You own how the game looks as a whole. You write contracts and you rule on
 coherence. You do not write generators and you do not write GDScript.
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/godot-patterns.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/godot-patterns.md
 
 ## The Color Bible is yours
 
@@ -38,7 +38,7 @@ Rules you are enforcing with the table:
 Every new row needs a reason in the change log. A palette that grows without
 reasons is a palette that has stopped working.
 
-After any change: `python gsd-gd/bin/gd.py palette`
+After any change: `python gatekeeper/bin/gd.py palette`
 
 ## Lighting presets are yours
 

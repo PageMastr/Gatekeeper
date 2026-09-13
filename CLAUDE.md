@@ -1,7 +1,10 @@
-# GSD-GameDev
+# Gatekeeper
 
-A GSD-style, spec-driven, context-engineered system for building games with
-Godot and Blender. Read this file, then `gsd-gd/references/laws.md`.
+A spec-driven, context-engineered system for building games with Godot and
+Blender. Named for what it does: every step ends at a gate written before the
+work started, and nothing moves forward until it is green.
+
+Read this file, then `gatekeeper/references/laws.md`.
 
 ## Installing / two roots
 
@@ -20,8 +23,8 @@ this one. Three config layers, lowest precedence first:
 
 | # | file | holds | lifetime |
 |---|---|---|---|
-| 1 | `gsd-gd/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths** | replaced on every upgrade |
-| 2 | `~/.claude/gsd-gd.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by install |
+| 1 | `gatekeeper/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths** | replaced on every upgrade |
+| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by install |
 | 3 | `<game>/.planning/config.json` | that game's numbers | lives in the game's own repo |
 
 Then `GD_GODOT` / `GD_BLENDER` / `GD_GODOT_SOURCE` on top, per shell.
@@ -32,14 +35,14 @@ gd setup --show   # what is recorded
 gd config         # all three layers, and where each value came from
 ```
 
-**Never write a path into `gsd-gd/config.json`.** It is shipped, shared by every
+**Never write a path into `gatekeeper/config.json`.** It is shipped, shared by every
 game, and replaced on every upgrade. A Godot **source checkout is optional** —
 with none, `gddoc index` has the engine generate its own class reference with
-`--doctool`. Details: `gsd-gd/references/toolchain.md`.
+`--doctool`. Details: `gatekeeper/references/toolchain.md`.
 
 ## What this repo is
 
-- `gsd-gd/` — the system. CLI, Blender library, Godot harness, templates, doctrine.
+- `gatekeeper/` — the system. CLI, Blender library, Godot harness, templates, doctrine.
 - `.claude/` — commands (`/gd:*`), agent definitions, skills.
 - `.planning/` — the contracts for the game currently being built:
   `CONTEXT.md` (settled decisions, systems, the map), `COLOR_BIBLE.md` (the
@@ -53,7 +56,7 @@ with none, `gddoc index` has the engine generate its own class reference with
 ## Drive everything through `gd`
 
 ```bash
-python gsd-gd/bin/gd.py <verb>
+python gatekeeper/bin/gd.py <verb>
 ```
 
 | verb | does |
@@ -81,7 +84,7 @@ python gsd-gd/bin/gd.py <verb>
 And the local, version-exact API reference:
 
 ```bash
-python gsd-gd/bin/gddoc.py <verb>
+python gatekeeper/bin/gddoc.py <verb>
 ```
 
 | verb | does |
@@ -123,7 +126,7 @@ Utilities: `/gd:asset`, `/gd:lab`, `/gd:light`, `/gd:perf`, `/gd:api`,
 `/gd:status`, `/gd:next`, `/gd:help`.
 
 Everything runs through the slash commands — you should never need to type a
-bare `python gsd-gd/...` command yourself; the commands do it.
+bare `python gatekeeper/...` command yourself; the commands do it.
 
 ## Hard rules
 
@@ -185,7 +188,7 @@ These are enforced by tooling, not just convention. Do not work around them.
   verdicts are archived per attempt to `<phase>/verdicts/`.
 - **Never type a timestamp.** `gd now`. Agents invent plausible ones.
 
-**Per-project config, never the shipped one.** `gsd-gd/config.json` is **shipped
+**Per-project config, never the shipped one.** `gatekeeper/config.json` is **shipped
 defaults only** — it is shared by every game on this machine and replaced on
 every upgrade, so a number set there is a number set for all of them, until it
 is not. Each project overrides what it needs in `.planning/config.json`,
@@ -213,7 +216,7 @@ records it, `gd init` pins it as the project's baseline, and `gd run status`
 warns when the system has changed mid-phase — because jobs graded before a
 change were graded by a different toolchain.
 
-**Never edit the installed system.** `~/.claude/gsd-gd/` is shared by every
+**Never edit the installed system.** `~/.claude/gatekeeper/` is shared by every
 game on this machine and is not under version control. Editing the harness,
 templates or CLI there changes how every other project is graded, with no
 record. Observed: one game wrote two of its own lighting presets into the shared
@@ -231,11 +234,11 @@ system, reviewed once and upstreamed into the repo — not a file edit.
 
 | topic | file |
 |---|---|
-| The fifteen laws and why they exist | `gsd-gd/references/laws.md` |
-| Setup, config layers, engine gotchas | `gsd-gd/references/toolchain.md` |
-| Engine patterns (tracks, lighting, occlusion, gait) | `gsd-gd/references/godot-patterns.md` |
-| Generator craft, kits, foliage, decimation | `gsd-gd/references/blender-patterns.md` |
-| Writing playtest plans and reading verdicts | `gsd-gd/references/playtest-recipes.md` |
-| Godot 4 API discipline and the 3.x→4.x traps | `gsd-gd/references/gdscript-4x.md` |
-| Breaking a whole game into stackable stages, and sizing the greybox block | `gsd-gd/references/decomposition.md` |
-| Which model does which job | `gsd-gd/references/model-routing.md` |
+| The fifteen laws and why they exist | `gatekeeper/references/laws.md` |
+| Setup, config layers, engine gotchas | `gatekeeper/references/toolchain.md` |
+| Engine patterns (tracks, lighting, occlusion, gait) | `gatekeeper/references/godot-patterns.md` |
+| Generator craft, kits, foliage, decimation | `gatekeeper/references/blender-patterns.md` |
+| Writing playtest plans and reading verdicts | `gatekeeper/references/playtest-recipes.md` |
+| Godot 4 API discipline and the 3.x→4.x traps | `gatekeeper/references/gdscript-4x.md` |
+| Breaking a whole game into stackable stages, and sizing the greybox block | `gatekeeper/references/decomposition.md` |
+| Which model does which job | `gatekeeper/references/model-routing.md` |

@@ -1,6 +1,6 @@
 # System findings — {{NAME}}
 
-> **Faults in the GSD-GameDev *system*, found while building this game.** Not
+> **Faults in the Gatekeeper *system*, found while building this game.** Not
 > bugs in the game — those are deviations, and they go in the job's Result.
 >
 > This file exists because a project inventing it spontaneously out-performed a

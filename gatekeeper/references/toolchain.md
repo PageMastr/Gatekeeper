@@ -17,8 +17,8 @@ Three layers, lowest precedence first:
 
 | # | file | holds | lifetime |
 |---|---|---|---|
-| 1 | `<install>/gsd-gd/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths.** | replaced on every upgrade |
-| 2 | `~/.claude/gsd-gd.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by `install.py` |
+| 1 | `<install>/gatekeeper/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths.** | replaced on every upgrade |
+| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by `install.py` |
 | 3 | `<game>/.planning/config.json` | that game's numbers | lives in the game's own repo |
 
 Then `GD_GODOT`, `GD_BLENDER` and `GD_GODOT_SOURCE` on top, as a per-shell
@@ -69,7 +69,7 @@ XML. Either way the reference comes from the same build as the running engine,
 which is the whole point — a stale API index is exactly the failure `gddoc`
 exists to prevent.
 
-The index is cached at `~/.claude/gsd-gd-cache/godot-api-<version>.json`, keyed
+The index is cached at `~/.claude/gatekeeper-cache/godot-api-<version>.json`, keyed
 by engine build so two engines on one machine cannot serve each other's API. It
 is written outside the install because the install is shared by every project
 and, with `install.py --link`, is a live git checkout.

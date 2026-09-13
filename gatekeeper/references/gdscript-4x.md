@@ -23,17 +23,17 @@ With no source checkout the same XML is generated from the binary itself
 install. `gddoc index` does this automatically.
 ```
 
-Indexed into `gsd-gd/cache/godot-api-index.json`: **1071 classes, 10 732
+Indexed into `gatekeeper/cache/godot-api-index.json`: **1071 classes, 10 732
 methods, 6 048 properties, 503 signals**.
 
 ```bash
-python gsd-gd/bin/gddoc.py index                 # build/refresh (8s, once)
-python gsd-gd/bin/gddoc.py class CharacterBody3D # every signature, + inheritance chain
-python gsd-gd/bin/gddoc.py class Light3D --full   # with descriptions
-python gsd-gd/bin/gddoc.py member Input.action_press
-python gsd-gd/bin/gddoc.py search shadow          # find it when you don't know the name
-python gsd-gd/bin/gddoc.py exists Spatial         # -> NO, use Node3D
-python gsd-gd/bin/gddoc.py scan scripts/player.gd # flag 3.x-isms
+python gatekeeper/bin/gddoc.py index                 # build/refresh (8s, once)
+python gatekeeper/bin/gddoc.py class CharacterBody3D # every signature, + inheritance chain
+python gatekeeper/bin/gddoc.py class Light3D --full   # with descriptions
+python gatekeeper/bin/gddoc.py member Input.action_press
+python gatekeeper/bin/gddoc.py search shadow          # find it when you don't know the name
+python gatekeeper/bin/gddoc.py exists Spatial         # -> NO, use Node3D
+python gatekeeper/bin/gddoc.py scan scripts/player.gd # flag 3.x-isms
 ```
 
 `member` resolves through the inheritance chain and reports where a member is
@@ -49,7 +49,7 @@ On a miss it suggests near names, which is usually the answer.
    opts out of the one tool that would have caught you.
 3. **After writing, before claiming done:**
    ```bash
-   python gsd-gd/bin/gd.py check <file.gd>
+   python gatekeeper/bin/gd.py check <file.gd>
    ```
    Two passes: the engine's own `--check-only` analyser (ground truth on types,
    identifiers and signatures — it even suggests the Godot 4 replacement name),

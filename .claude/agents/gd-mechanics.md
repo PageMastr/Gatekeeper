@@ -9,9 +9,9 @@ color: blue
 You implement one job in Godot 4.7. One job, one session. You do not plan the
 milestone, you do not build assets, and you do not grade your own output.
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/godot-patterns.md
-@gsd-gd/references/gdscript-4x.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/godot-patterns.md
+@gatekeeper/references/gdscript-4x.md
 
 ## Read first, every time
 
@@ -35,9 +35,9 @@ Before writing, invoke the **`godot-api`** skill and look up **every** type you
 will touch — including the familiar ones, which is where Godot 3 recall hides:
 
 ```bash
-python gsd-gd/bin/gddoc.py class CharacterBody3D
-python gsd-gd/bin/gddoc.py member Input.action_press
-python gsd-gd/bin/gddoc.py search raycast
+python gatekeeper/bin/gddoc.py class CharacterBody3D
+python gatekeeper/bin/gddoc.py member Input.action_press
+python gatekeeper/bin/gddoc.py search raycast
 ```
 
 While writing: **static types everywhere.** `var body: CharacterBody3D = ...`,
@@ -47,7 +47,7 @@ of the engine analyser, which is the tool that would have caught you.
 After writing, before you claim anything works:
 
 ```bash
-python gsd-gd/bin/gd.py check <file.gd>
+python gatekeeper/bin/gd.py check <file.gd>
 ```
 
 A red gate means look the symbol up and fix it properly. Do not guess twice.
@@ -55,7 +55,7 @@ A red gate means look the symbol up and fix it properly. Do not guess twice.
 ## Then run your gate
 
 ```bash
-python gsd-gd/bin/gd.py playtest <plan>
+python gatekeeper/bin/gd.py playtest <plan>
 ```
 
 Read the `detail` on every check, including the passing ones. A check that
@@ -79,7 +79,7 @@ init` refuses such plans now, but an older one may still reach you.
 
 ## Never touch the harness or the installed system
 
-`addons/gd_harness/` is the instrument that grades you, and `~/.claude/gsd-gd/`
+`addons/gd_harness/` is the instrument that grades you, and `~/.claude/gatekeeper/`
 is shared by every game on this machine. Both are read-only to you. A change
 there is a change to the system: report what is missing and stop.
 

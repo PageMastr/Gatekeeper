@@ -5,7 +5,7 @@
 > `gd roadmap` — which fails on a hole, so this cannot quietly drift into
 > fiction.
 >
-> The rule it obeys (see `gsd-gd/references/decomposition.md`):
+> The rule it obeys (see `gatekeeper/references/decomposition.md`):
 > **one stage = one phase = something playable. One slice = one session = one
 > gate.** Nothing else is a unit of work.
 >

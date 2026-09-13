@@ -5,7 +5,7 @@ allowed-tools: Read, Bash, Glob
 
 # /gd:help
 
-Read `CLAUDE.md` and `gsd-gd/references/laws.md`, then answer the user's
+Read `CLAUDE.md` and `gatekeeper/references/laws.md`, then answer the user's
 question directly. If they asked nothing specific, give them this — and if they
 are new to the system, point them at `QUICKSTART.md` first:
 
@@ -13,7 +13,7 @@ are new to the system, point them at `QUICKSTART.md` first:
 
 ```bash
 gd setup                     find Godot and Blender and record them. Writes
-                             ~/.claude/gsd-gd.machine.json, which no upgrade
+                             ~/.claude/gatekeeper.machine.json, which no upgrade
                              touches. `gd setup --show` prints what it found.
 gd doctor                    prove the whole chain, and print which directory
                              this game will live in
@@ -84,9 +84,9 @@ Art is refused by `gd run init` until the last one clears and you have played it
 
 ## The CLI underneath
 
-`python gsd-gd/bin/gd.py <verb>` - doctor, init, state, phase, palette, models,
+`python gatekeeper/bin/gd.py <verb>` - doctor, init, state, phase, palette, models,
 run, check, blender, asset, godot, playtest, credits, harness.
-`python gsd-gd/bin/gddoc.py <verb>` - index, class, member, search, exists, scan, stats.
+`python gatekeeper/bin/gddoc.py <verb>` - index, class, member, search, exists, scan, stats.
 
 Every verb prints one `GD<VERB> {json}` line; parse that, not the log noise.
 

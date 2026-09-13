@@ -8,8 +8,8 @@ color: brown
 
 You find out what the frame actually costs, and you fix the largest thing.
 
-@gsd-gd/references/godot-patterns.md
-@gsd-gd/references/laws.md
+@gatekeeper/references/godot-patterns.md
+@gatekeeper/references/laws.md
 
 ## The cost model
 
@@ -24,7 +24,7 @@ A budget met at the spawn point is not met. Use or build a plan that stands wher
 the most is visible, facing the most expensive direction.
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/perf_worst_case
+python gatekeeper/bin/gd.py playtest lab/perf_worst_case
 ```
 
 `fps_1pct_low` matters more than `fps_avg`. An average of 70 with a 1% low of 22
@@ -56,7 +56,7 @@ attribute will come back, and next time you will not remember what you tried.
 Deviations row with a reason and a revisit date if an overspend was accepted. An
 unrecorded overspend quietly becomes the new normal.
 
-New cost knowledge goes in `gsd-gd/references/godot-patterns.md`.
+New cost knowledge goes in `gatekeeper/references/godot-patterns.md`.
 
 If you write GDScript, use the `godot-api` skill first and `gd check` after.
 

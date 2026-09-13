@@ -30,7 +30,7 @@ line must be a command that exits non-zero on failure.
 
 Write gate lines in the short `gd ...` / `gddoc ...` form. `gd run gate`
 resolves them against whichever install is running, so this file stays portable:
-a repo-relative `python gsd-gd/bin/gd.py ...` only works inside the system's own
+a repo-relative `python gatekeeper/bin/gd.py ...` only works inside the system's own
 checkout, and a baked absolute path breaks the moment the project or the install
 moves machines. Anything that is not a `gd` command runs as written, so a
 project's own test runner is fine.

@@ -178,7 +178,7 @@ describes a game that does not exist yet. Never use it as a real gate.
 - `checks[]` — per-check pass/fail with the actual measured value in `detail`.
 - `perf` — `fps_avg`, `fps_1pct_low`, `frame_ms_worst`, `draw_calls_max`,
   `primitives_max`, `lights`, `shadow_lights`.
-- `budget_fails[]` — budget violations from `gsd-gd/config.json`.
+- `budget_fails[]` — budget violations from `gatekeeper/config.json`.
 - `runtime_errors[]` — `SCRIPT ERROR` lines scraped from the process output. The
   harness cannot see these; a run that "passed" while spraying script errors has
   not passed, so they fail the verdict.

@@ -6,8 +6,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, AskUserQuestion, Skil
 
 # /gd:plan
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/model-routing.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/model-routing.md
 
 Input: **$ARGUMENTS**
 
@@ -19,8 +19,8 @@ parks an unattended build indefinitely.
 ## First, work out which mode you are in
 
 ```bash
-python gsd-gd/bin/gd.py doctor
-python gsd-gd/bin/gd.py state 2>/dev/null || echo "NO_PROJECT"
+python gatekeeper/bin/gd.py doctor
+python gatekeeper/bin/gd.py state 2>/dev/null || echo "NO_PROJECT"
 ```
 
 | situation | mode |
@@ -55,7 +55,7 @@ If `.planning/` does not exist, get a project name (ask if `$ARGUMENTS` does not
 imply one) and:
 
 ```bash
-python gsd-gd/bin/gd.py init "<Name>"
+python gatekeeper/bin/gd.py init "<Name>"
 ```
 
 That creates the Godot project with a **playable greybox** already in it, the
@@ -228,8 +228,8 @@ emission and role. One warm family; shadow is a colour, not `#000000`; emission
 means information. Then:
 
 ```bash
-python gsd-gd/bin/gd.py palette
-python gsd-gd/bin/gd.py state palette_locked yes
+python gatekeeper/bin/gd.py palette
+python gatekeeper/bin/gd.py state palette_locked yes
 ```
 
 **`.planning/CORE_LOOP.md`** — the one-sentence loop, the four-beat table where
@@ -237,15 +237,15 @@ beat 4 changes the state of beat 1, the tension, the failure state, Minute One
 as a testable sequence.
 
 ```bash
-python gsd-gd/bin/gd.py state loop_locked yes
+python gatekeeper/bin/gd.py state loop_locked yes
 ```
 
 **`game/<slug>/lab/minute_one.json`** — replace the seeded steps with the real
 Minute One. Lint it, then prove the harness runs in **smoke mode**:
 
 ```bash
-python gsd-gd/bin/gd.py playtest minute_one --lint
-python gsd-gd/bin/gd.py playtest minute_one --smoke
+python gatekeeper/bin/gd.py playtest minute_one --lint
+python gatekeeper/bin/gd.py playtest minute_one --smoke
 ```
 
 `--smoke` gates on the harness booting, the scene loading and screenshots being
@@ -256,7 +256,7 @@ the project.
 
 ## 4. Write the roadmap — the whole game, in stackable stages
 
-@gsd-gd/references/decomposition.md
+@gatekeeper/references/decomposition.md
 
 Read that reference before writing this; it carries the stage ladder, the
 greybox block rules and the ordering rules, all derived from builds that
@@ -323,7 +323,7 @@ stage number it will get — this is a schedule, not a graveyard.
 Then validate. This is a gate, not a formatting check:
 
 ```bash
-python gsd-gd/bin/gd.py roadmap
+python gatekeeper/bin/gd.py roadmap
 ```
 
 Fix the roadmap rather than working around it; every failure it reports is a
@@ -346,11 +346,11 @@ Now that the roadmap describes the real scene scope, set it:
   unreviewed contract is indistinguishable from a forgotten one.
 
 Numbers live in `.planning/config.json`; `BUDGET.md` is where they are justified.
-Change both together — never the shipped `gsd-gd/config.json`, which is every
+Change both together — never the shipped `gatekeeper/config.json`, which is every
 game on the machine.
 
 ```bash
-python gsd-gd/bin/gd.py config          # confirm the override landed
+python gatekeeper/bin/gd.py config          # confirm the override landed
 ```
 
 Then **commit**. The contracts are the most expensive artefact in the project —
@@ -379,7 +379,7 @@ cannot be turned into runnable commands, fix the roadmap row first — do not
 invent a weaker gate here.
 
 ```bash
-python gsd-gd/bin/gd.py phase new "<milestone>"
+python gatekeeper/bin/gd.py phase new "<milestone>"
 ```
 
 Then fill in `.planning/phases/NN-<slug>/PLAN.md`:
@@ -398,8 +398,8 @@ roadmap row:
 
 **Write gate lines in the short `gd ...` form.** `gd run gate` resolves `gd` and
 `gddoc` against whichever install is running, so `PLAN.md` stays portable. A
-repo-relative `python gsd-gd/bin/gd.py ...` resolves only inside the system's own
-checkout — in a normal install it fails with `can't open file .../<game>/gsd-gd/
+repo-relative `python gatekeeper/bin/gd.py ...` resolves only inside the system's own
+checkout — in a normal install it fails with `can't open file .../<game>/gatekeeper/
 bin/gd.py`, which reads as a broken project rather than a broken gate. Anything
 that is not a `gd` command runs as written.
 
@@ -419,7 +419,7 @@ a phase that is not defined yet.
   the table). Set it only to deliberately start lower or higher; `/gd:run`
   escalates it on repeated failure.
 
-Write each job as its own file from `gsd-gd/templates/JOB.md` into
+Write each job as its own file from `gatekeeper/templates/JOB.md` into
 `.planning/phases/NN-<slug>/jobs/`.
 
 ### If this is a greybox stage
@@ -504,8 +504,8 @@ available here, because you find out after four jobs have built on it.
 ## Arm the driver
 
 ```bash
-python gsd-gd/bin/gd.py run init
-python gsd-gd/bin/gd.py run next      # confirm it parsed the plan as you intended
+python gatekeeper/bin/gd.py run init
+python gatekeeper/bin/gd.py run next      # confirm it parsed the plan as you intended
 ```
 
 If `run init` reports fewer jobs or waves than you wrote, the tables are
@@ -514,8 +514,8 @@ malformed — fix `PLAN.md`, do not work around it.
 ## Finish
 
 ```bash
-python gsd-gd/bin/gd.py state phase "NN-<slug>"
-python gsd-gd/bin/gd.py state beat build
+python gatekeeper/bin/gd.py state phase "NN-<slug>"
+python gatekeeper/bin/gd.py state beat build
 ```
 
 Report: the contracts written (kickoff), the roadmap with its greybox block, the

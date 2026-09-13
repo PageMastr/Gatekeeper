@@ -17,11 +17,11 @@ source tree. Looking one up costs one tool call.
 ## Before you write
 
 ```bash
-python gsd-gd/bin/gddoc.py class <Type>             # every signature + inheritance chain
-python gsd-gd/bin/gddoc.py class <Type> --full      # with descriptions
-python gsd-gd/bin/gddoc.py member <Class>.<member>  # one exact signature + docs
-python gsd-gd/bin/gddoc.py search <keyword>         # when you don't know the name
-python gsd-gd/bin/gddoc.py exists <Name>            # is this class real in 4.7?
+python gatekeeper/bin/gddoc.py class <Type>             # every signature + inheritance chain
+python gatekeeper/bin/gddoc.py class <Type> --full      # with descriptions
+python gatekeeper/bin/gddoc.py member <Class>.<member>  # one exact signature + docs
+python gatekeeper/bin/gddoc.py search <keyword>         # when you don't know the name
+python gatekeeper/bin/gddoc.py exists <Name>            # is this class real in 4.7?
 ```
 
 Look up **every** type you are about to touch — not just the unfamiliar ones.
@@ -31,7 +31,7 @@ The familiar ones are where Godot 3 recall hides, because you are confident.
 really declared. On a miss it suggests near names, which is usually the answer:
 
 ```
-$ python gsd-gd/bin/gddoc.py member Input.action_pres
+$ python gatekeeper/bin/gddoc.py member Input.action_pres
 NOT FOUND: action_pres on Input (or bases: Object)
 did you mean: action_press, is_action_pressed
 ```
@@ -46,7 +46,7 @@ would have caught the error.
 ## After you write, before you claim it works
 
 ```bash
-python gsd-gd/bin/gd.py check <file.gd>     # or with no args: every .gd in the project
+python gatekeeper/bin/gd.py check <file.gd>     # or with no args: every .gd in the project
 ```
 
 Two passes, because neither alone is enough:
@@ -83,7 +83,7 @@ second time.
 
 Full list, plus the traps the analyser cannot catch (type inference through
 `duplicate()`, shadowing `name`, re-entrant setters, `@tool` during `--import`,
-hand-written `uid://`): `gsd-gd/references/gdscript-4x.md`.
+hand-written `uid://`): `gatekeeper/references/gdscript-4x.md`.
 
 ## When the docs are ambiguous
 
@@ -98,6 +98,6 @@ grep -rn "move_and_slide" "$SOURCE_ROOT/scene/3d/physics/character_body_3d.cpp"
 ## If the index is missing
 
 ```bash
-python gsd-gd/bin/gddoc.py index          # 8s, 1071 classes
-python gsd-gd/bin/gddoc.py index --force  # after upgrading or rebuilding the engine
+python gatekeeper/bin/gddoc.py index          # 8s, 1071 classes
+python gatekeeper/bin/gddoc.py index --force  # after upgrading or rebuilding the engine
 ```

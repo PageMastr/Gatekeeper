@@ -8,13 +8,13 @@ allowed-tools: Read, Bash, Glob, Grep
 Gather, then summarise. Do not editorialise; report what the tools say.
 
 ```bash
-python gsd-gd/bin/gd.py doctor
-python gsd-gd/bin/gd.py state
-python gsd-gd/bin/gd.py phase list
-python gsd-gd/bin/gd.py roadmap status
-python gsd-gd/bin/gd.py run status
-python gsd-gd/bin/gd.py models
-python gsd-gd/bin/gd.py check
+python gatekeeper/bin/gd.py doctor
+python gatekeeper/bin/gd.py state
+python gatekeeper/bin/gd.py phase list
+python gatekeeper/bin/gd.py roadmap status
+python gatekeeper/bin/gd.py run status
+python gatekeeper/bin/gd.py models
+python gatekeeper/bin/gd.py check
 git -C . log --oneline -10
 git -C . status --short
 ```

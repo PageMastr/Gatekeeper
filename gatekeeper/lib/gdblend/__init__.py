@@ -1,4 +1,4 @@
-"""gdblend - the Blender half of GSD-GameDev.
+"""gdblend - the Blender half of Gatekeeper.
 
 Asset generators are *scripts*, not .blend files. The script is the source of
 truth; the .glb is a build artifact. When the roof is wrong you fix one line
@@ -140,7 +140,7 @@ def _color_bible_path() -> str:
 def palette() -> dict:
     """Parse the Color Bible table into {key: {hex, rgb, roughness, metallic, emission, role}}.
 
-    Table shape (see gsd-gd/templates/COLOR_BIBLE.md):
+    Table shape (see gatekeeper/templates/COLOR_BIBLE.md):
       | key | hex | roughness | metallic | emission | role |
     """
     global _palette_cache

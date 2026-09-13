@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill, AskUserQuestion
 
 # /gd:new — start a game from nothing
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 Idea: **$ARGUMENTS**
 
@@ -21,7 +21,7 @@ at the end. Two copies of the same interview would drift apart within a week.
 ## 1. Where are we, and is this actually a new project?
 
 ```bash
-python gsd-gd/bin/gd.py doctor
+python gatekeeper/bin/gd.py doctor
 ```
 
 Read the `system` and `work` lines it prints. `work` is where `.planning/` and
@@ -34,7 +34,7 @@ Two placements to catch before anything is written:
 - **`work_root_outside_install` red** — you are inside the installed system.
   Stop; the game would be shared by every project on the machine and destroyed by
   the next upgrade. `gd init` refuses this outright.
-- **`work_root_is_system_repo` red** — you are in the GSD-GameDev source
+- **`work_root_is_system_repo` red** — you are in the Gatekeeper source
   checkout. A game created here lands in the system's own git history. Say so and
   ask where the game should live instead; `cd` there, or set `GD_PROJECT`.
 
@@ -64,21 +64,21 @@ expected to fail here — that is what you are about to create.
 **If `machine_config` is red, or Godot or Blender is missing**, run the wizard:
 
 ```bash
-python gsd-gd/bin/gd.py setup
+python gatekeeper/bin/gd.py setup
 ```
 
 It searches this machine for both engines, verifies each by running it, prefers
 the Windows `.console` build, and records what it found in
-`~/.claude/gsd-gd.machine.json` — outside the install, so upgrading never
+`~/.claude/gatekeeper.machine.json` — outside the install, so upgrading never
 destroys it. If it cannot find something it asks for the path; in a
 non-interactive session it reports its candidates and exits non-zero instead of
 hanging, and you pass the path explicitly:
 
 ```bash
-python gsd-gd/bin/gd.py setup --godot "<path>" --blender "<path>"
+python gatekeeper/bin/gd.py setup --godot "<path>" --blender "<path>"
 ```
 
-Never edit `gsd-gd/config.json` to fix a path. It is shipped, shared and replaced
+Never edit `gatekeeper/config.json` to fix a path. It is shipped, shared and replaced
 on every upgrade; a path written there is gone at the next install and wrong for
 every other user.
 
@@ -90,7 +90,7 @@ Do not scaffold a project you cannot build.
 configured, confirm it is there:
 
 ```bash
-python gsd-gd/bin/gddoc.py stats 2>/dev/null || python gsd-gd/bin/gddoc.py index
+python gatekeeper/bin/gddoc.py stats 2>/dev/null || python gatekeeper/bin/gddoc.py index
 ```
 
 ~1000 classes, from the engine's own class reference — read from a source
@@ -118,7 +118,7 @@ The name becomes `game/<slug>/`, so keep it short and filesystem-safe. It is
 awkward to change later; the slug ends up in scene paths.
 
 ```bash
-python gsd-gd/bin/gd.py init "<Name>"
+python gatekeeper/bin/gd.py init "<Name>"
 ```
 
 That writes the contract templates, scaffolds the Godot project with a **playable
@@ -129,9 +129,9 @@ own numbers, and generates `Palette` from the starting Color Bible.
 ## 6. Prove the scaffold works before interviewing anyone
 
 ```bash
-python gsd-gd/bin/gd.py godot import
-python gsd-gd/bin/gd.py check
-python gsd-gd/bin/gd.py playtest minute_one
+python gatekeeper/bin/gd.py godot import
+python gatekeeper/bin/gd.py check
+python gatekeeper/bin/gd.py playtest minute_one
 ```
 
 All three should pass on the fresh scaffold. If they do not, the problem is the

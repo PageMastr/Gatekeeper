@@ -6,9 +6,9 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 
 # /gd:greybox — the loop, in grey, or nothing
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/decomposition.md
-@gsd-gd/references/playtest-recipes.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/decomposition.md
+@gatekeeper/references/playtest-recipes.md
 
 Scope: **$ARGUMENTS**
 
@@ -30,7 +30,7 @@ playable, so you learn something at the end of each rather than at the end of al
 of them.
 
 ```bash
-python gsd-gd/bin/gd.py roadmap status
+python gatekeeper/bin/gd.py roadmap status
 ```
 
 That prints the block and how many systems and spaces it has to prove. If the
@@ -40,7 +40,7 @@ block looks too small for what the systems inventory and levels table contain,
 ## First: is this already a planned phase?
 
 ```bash
-python gsd-gd/bin/gd.py run status 2>/dev/null
+python gatekeeper/bin/gd.py run status 2>/dev/null
 ```
 
 **If that returns a phase with jobs, stop and invoke the `gd:run` skill instead.**
@@ -137,11 +137,11 @@ reason — and then failed a five-minute human playtest in three ways. Every pla
 pressed the whole interaction; none modelled the player who pressed half of it.
 
 ```bash
-python gsd-gd/bin/gd.py playtest blockout_walk
-python gsd-gd/bin/gd.py playtest loop_complete
-python gsd-gd/bin/gd.py playtest can_lose
-python gsd-gd/bin/gd.py playtest partial_input
-python gsd-gd/bin/gd.py playtest minute_one
+python gatekeeper/bin/gd.py playtest blockout_walk
+python gatekeeper/bin/gd.py playtest loop_complete
+python gatekeeper/bin/gd.py playtest can_lose
+python gatekeeper/bin/gd.py playtest partial_input
+python gatekeeper/bin/gd.py playtest minute_one
 ```
 
 Read the `detail` field of **every** check. A check that passes for the wrong
@@ -154,7 +154,7 @@ no spine.
 At the end of each stage in the block:
 
 ```bash
-python gsd-gd/bin/gd.py roadmap done <stage id>
+python gatekeeper/bin/gd.py roadmap done <stage id>
 ```
 
 Then plan the next one with `/gd:plan`. Stages in the middle of the block are
@@ -176,8 +176,8 @@ to change its mind — spend it.
 Only when the last stage's plans all pass **and** the user has played it:
 
 ```bash
-python gsd-gd/bin/gd.py state greybox_passed yes
-python gsd-gd/bin/gd.py state beat build
+python gatekeeper/bin/gd.py state greybox_passed yes
+python gatekeeper/bin/gd.py state beat build
 ```
 
 Report: the loop as built, every verdict, the tuning notes with the numbers that

@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 
 # /gd:lab — isolate before you debug
 
-@gsd-gd/references/godot-patterns.md
+@gatekeeper/references/godot-patterns.md
 
 Subject: **$ARGUMENTS**
 
@@ -17,7 +17,7 @@ you will blame the wrong one.
 ## Before writing any GDScript
 
 Use the `godot-api` skill. Look up every type you are about to touch. Then
-`python gsd-gd/bin/gd.py check <file.gd>` before you claim the lab works.
+`python gatekeeper/bin/gd.py check <file.gd>` before you claim the lab works.
 
 ## What a lab scene is
 
@@ -53,7 +53,7 @@ run long. A fix applied without seeing the failure is a guess.
 ## Then iterate
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/<subject>
+python gatekeeper/bin/gd.py playtest lab/<subject>
 ```
 
 Keep every attempt. The progression is information — the eighth walk cycle only

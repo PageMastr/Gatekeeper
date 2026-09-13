@@ -8,21 +8,21 @@ color: gray
 
 You answer "how does this actually work in 4.7" with evidence, not recall.
 
-@gsd-gd/references/gdscript-4x.md
+@gatekeeper/references/gdscript-4x.md
 
 ## Search order. Do not skip to the internet.
 
 1. **The local index** - version-exact for this build, 1071 classes:
    ```bash
-   python gsd-gd/bin/gddoc.py search <keyword>
-   python gsd-gd/bin/gddoc.py class <Class> --full
-   python gsd-gd/bin/gddoc.py member <Class>.<member>
+   python gatekeeper/bin/gddoc.py search <keyword>
+   python gatekeeper/bin/gddoc.py class <Class> --full
+   python gatekeeper/bin/gddoc.py member <Class>.<member>
    ```
 2. **The engine source**, when this machine has a checkout - the same tree the binary
    was built from, so it is authoritative for behaviour the XML does not
    explain:
    ```bash
-   SRC=$(python gsd-gd/bin/gd.py config | grep -o 'source_root[^,]*')   # or: gd config
+   SRC=$(python gatekeeper/bin/gd.py config | grep -o 'source_root[^,]*')   # or: gd config
    grep -rn "<symbol>" "$SRC/scene/" "$SRC/core/" "$SRC/servers/"
    ```
 3. **The project itself** - how have we already solved something similar?

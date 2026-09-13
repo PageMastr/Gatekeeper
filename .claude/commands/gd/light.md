@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, Skill
 
 # /gd:light — lighting as data
 
-@gsd-gd/references/godot-patterns.md
+@gatekeeper/references/godot-patterns.md
 
 Subject: **$ARGUMENTS**
 
@@ -51,7 +51,7 @@ which is the point. A human can see; a human cannot remember numbers.
 
 ```bash
 # the binary comes from the machine config; `gd config` prints it
-python gsd-gd/bin/gd.py godot script res://lab/light_panel.gd   # or open the editor by hand
+python gatekeeper/bin/gd.py godot script res://lab/light_panel.gd   # or open the editor by hand
 ```
 
 ## Presets that ship by default
@@ -70,7 +70,7 @@ If you write GDScript here, use the `godot-api` skill first and
 ## Judge on frames, not in the editor
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/light_<preset>
+python gatekeeper/bin/gd.py playtest lab/light_<preset>
 ```
 
 Shoot the *same* camera under each candidate preset, then hand the set to
@@ -87,7 +87,7 @@ disables shadows on the lowest-energy casters and warns when it does — a warni
 in the log means the scene went over budget and the policy chose for you.
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/perf_worst_case
+python gatekeeper/bin/gd.py playtest lab/perf_worst_case
 ```
 
 Watch `shadow_lights` and `draw_calls_max`. A preset that looks good and costs

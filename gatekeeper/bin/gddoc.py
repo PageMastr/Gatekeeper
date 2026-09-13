@@ -49,7 +49,7 @@ for _s in (sys.stdout, sys.stderr):
         _s.reconfigure(encoding="utf-8", errors="replace")
 
 # Derived from this file's location so the tool works wherever it is installed.
-SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
+SYS_DIR = Path(__file__).resolve().parents[1]   # .../gatekeeper
 
 
 def _claude_home() -> Path:
@@ -60,7 +60,7 @@ def _claude_home() -> Path:
 # every project on the machine and, with `install.py --link`, is a live git
 # checkout - writing derived megabytes into it dirties the repo and makes two
 # concurrent projects race over one file.
-CACHE = Path(os.environ.get("GD_CACHE_DIR") or (_claude_home() / "gsd-gd-cache"))
+CACHE = Path(os.environ.get("GD_CACHE_DIR") or (_claude_home() / "gatekeeper-cache"))
 
 
 def cfg() -> dict:
@@ -72,7 +72,7 @@ def cfg() -> dict:
     """
     base = json.loads((SYS_DIR / "config.json").read_text(encoding="utf-8"))
     mc = Path(os.environ.get("GD_MACHINE_CONFIG")
-              or (_claude_home() / "gsd-gd.machine.json"))
+              or (_claude_home() / "gatekeeper.machine.json"))
     if mc.exists():
         try:
             over = json.loads(mc.read_text(encoding="utf-8"))

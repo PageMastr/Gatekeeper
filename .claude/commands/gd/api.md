@@ -6,7 +6,7 @@ allowed-tools: Read, Bash, Glob, Grep
 
 # /gd:api — the local Godot 4.7 reference
 
-@gsd-gd/references/gdscript-4x.md
+@gatekeeper/references/gdscript-4x.md
 
 Query: **$ARGUMENTS**
 
@@ -14,11 +14,11 @@ Query: **$ARGUMENTS**
 
 | the argument looks like | run |
 |---|---|
-| `CharacterBody3D` (a class) | `python gsd-gd/bin/gddoc.py class CharacterBody3D` |
-| `Input.action_press` (has a dot) | `python gsd-gd/bin/gddoc.py member Input.action_press` |
-| `something.gd` (a file) | `python gsd-gd/bin/gd.py check something.gd` |
-| anything else (a keyword) | `python gsd-gd/bin/gddoc.py search <query>` |
-| empty | `python gsd-gd/bin/gddoc.py stats`, then explain what is available |
+| `CharacterBody3D` (a class) | `python gatekeeper/bin/gddoc.py class CharacterBody3D` |
+| `Input.action_press` (has a dot) | `python gatekeeper/bin/gddoc.py member Input.action_press` |
+| `something.gd` (a file) | `python gatekeeper/bin/gd.py check something.gd` |
+| anything else (a keyword) | `python gatekeeper/bin/gddoc.py search <query>` |
+| empty | `python gatekeeper/bin/gddoc.py stats`, then explain what is available |
 
 Add `--full` to `class` when the user wants behaviour, not just signatures.
 
@@ -38,8 +38,8 @@ which lookups you did. An example written without a lookup is exactly the
 failure mode this command exists to prevent.
 
 ```bash
-python gsd-gd/bin/gddoc.py search <keyword>     # find the surface
-python gsd-gd/bin/gddoc.py class <Class> --full # read what it actually does
+python gatekeeper/bin/gddoc.py search <keyword>     # find the surface
+python gatekeeper/bin/gddoc.py class <Class> --full # read what it actually does
 ```
 
 For behaviour the XML does not explain, read the engine source at
@@ -55,10 +55,10 @@ grep -rn "<symbol>" "$SOURCE_ROOT/scene/" "$SOURCE_ROOT/core/"
 ## Maintenance
 
 ```bash
-python gsd-gd/bin/gddoc.py index --force   # after rebuilding or upgrading the engine
+python gatekeeper/bin/gddoc.py index --force   # after rebuilding or upgrading the engine
 ```
 
-The index is `gsd-gd/cache/godot-api-index.json`, built from
+The index is `gatekeeper/cache/godot-api-index.json`, built from
 `<source_root>/doc/classes/` and each module's `doc_classes/` — or, with no
 source tree, from `godot --doctool`, which makes the binary dump the same XML it
 was compiled with. It is

@@ -8,9 +8,9 @@ color: yellow
 
 You make things move.
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/godot-patterns.md
-@gsd-gd/references/blender-patterns.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/godot-patterns.md
+@gatekeeper/references/blender-patterns.md
 
 ## Pick the approach deliberately, and say why
 
@@ -73,7 +73,7 @@ type (`Skeleton3D`, `AnimationTree`, `AnimationNodeStateMachine`, `PhysicsBody3D
 and friends all changed in 4.x), use static types, then:
 
 ```bash
-python gsd-gd/bin/gd.py check <file.gd>
+python gatekeeper/bin/gd.py check <file.gd>
 ```
 
 ## Graduation

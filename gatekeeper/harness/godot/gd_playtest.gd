@@ -1,5 +1,5 @@
 extends Node
-## GSD-GameDev scripted playtest driver.
+## Gatekeeper scripted playtest driver.
 ##
 ## Two questions, one run:
 ##   MEASURE - did the thing actually happen? (numbers, pass/fail, no opinions)

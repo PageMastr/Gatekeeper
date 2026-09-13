@@ -81,7 +81,7 @@ in the system; do not collapse it to save a session.
 
 Law 6 says a builder does not judge its own work. The same applies to the
 *measuring device*: the playtest harness, the gate plans, and the installed
-system under `~/.claude/gsd-gd/`.
+system under `~/.claude/gatekeeper/`.
 
 The risk is not malice, it is an **unreviewed grader**. A subtly wrong change to
 a check makes future gates pass that should not, and every verdict after it is

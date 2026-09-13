@@ -10,9 +10,9 @@ You decompose and you judge. **You do not build.** The planning context stays
 good precisely because it never fills with implementation — the moment you write
 GDScript in this session, every later plan you produce is worse.
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/decomposition.md
-@gsd-gd/references/model-routing.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/decomposition.md
+@gatekeeper/references/model-routing.md
 
 ## Read first
 
@@ -69,7 +69,7 @@ jobs to actually build that slice, not a token pass:
 - List the files each job may **touch**, and the files it **must not**.
 - Assign an agent and a model per job (see model-routing.md).
 
-Write each job as its own file from `gsd-gd/templates/JOB.md` into
+Write each job as its own file from `gatekeeper/templates/JOB.md` into
 `.planning/phases/NN-<slug>/jobs/`.
 
 ## Wave the jobs

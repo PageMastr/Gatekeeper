@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""gd - the GSD-GameDev toolchain CLI.
+"""gd - the Gatekeeper toolchain CLI.
 
 One command surface over Godot and Blender so that every agent drives the
 toolchain the same way, and every result comes back as machine-readable JSON.
 
-Design rules (see gsd-gd/references/laws.md):
+Design rules (see gatekeeper/references/laws.md):
   * Every invocation is headless or windowed-offscreen - never interactive.
   * Every invocation prints a single `GD<VERB> {json}` line for the caller.
-  * Nothing is hardcoded twice: toolchain paths live in gsd-gd/config.json.
+  * Nothing is hardcoded twice: toolchain paths live in gatekeeper/config.json.
 """
 from __future__ import annotations
 
@@ -30,12 +30,12 @@ for _s in (sys.stdout, sys.stderr):
 # Two different roots, and conflating them is the bug that makes a global
 # install share one game's contracts across every project on the machine.
 #
-#   SYS_DIR - where gsd-gd is installed. Read-only at runtime except for cache/:
+#   SYS_DIR - where gatekeeper is installed. Read-only at runtime except for cache/:
 #             config, templates, lib, harness. Found from this file's location,
 #             so the system works wherever it is installed.
 #   WORK    - the user's game workspace. Owns .planning/ and game/. Found from
 #             the cwd, so one install can drive many separate games.
-SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
+SYS_DIR = Path(__file__).resolve().parents[1]   # .../gatekeeper
 CONFIG = SYS_DIR / "config.json"
 
 
@@ -47,19 +47,19 @@ def claude_home() -> Path:
 # The machine's toolchain, written once by `gd setup` and never shipped.
 #
 # This deliberately lives OUTSIDE the installed payload. `install.py` copies
-# `gsd-gd/` wholesale on every upgrade, so anything the wizard wrote into
-# `gsd-gd/config.json` would be destroyed by the next install - and the first
+# `gatekeeper/` wholesale on every upgrade, so anything the wizard wrote into
+# `gatekeeper/config.json` would be destroyed by the next install - and the first
 # symptom would be `gd doctor` reporting a Godot binary that used to be there.
 # Keeping it beside the install instead of inside it makes upgrades safe and
 # makes the shipped config.json pure, version-controllable defaults.
 MACHINE_CONFIG = Path(os.environ.get("GD_MACHINE_CONFIG")
-                      or (claude_home() / "gsd-gd.machine.json"))
+                      or (claude_home() / "gatekeeper.machine.json"))
 
 # Derived caches (the Godot API index) must not be written into the install
 # root: it is shared by every project on the machine and, when installed with
 # --link, is a working git checkout. Keyed by engine build so two engines on one
 # machine cannot serve each other's API.
-CACHE_ROOT = Path(os.environ.get("GD_CACHE_DIR") or (claude_home() / "gsd-gd-cache"))
+CACHE_ROOT = Path(os.environ.get("GD_CACHE_DIR") or (claude_home() / "gatekeeper-cache"))
 
 
 def _true_case(p: Path) -> Path:
@@ -151,7 +151,7 @@ def project_config_path() -> Path:
 def cfg() -> dict:
     """Effective config: machine defaults, overridden per project.
 
-    `gsd-gd/config.json` lives in the install root and is shared by every game
+    `gatekeeper/config.json` lives in the install root and is shared by every game
     on this machine, so everything in it can only ever be a *default*. A project
     overrides any of it in `.planning/config.json`, which is deep-merged on top
     and lives under the project's own version control.
@@ -162,11 +162,11 @@ def cfg() -> dict:
 
     Three layers, lowest first:
 
-      1. `gsd-gd/config.json`  - shipped defaults. Version-controlled, identical
+      1. `gatekeeper/config.json`  - shipped defaults. Version-controlled, identical
          on every machine, and **overwritten by every upgrade**. It carries no
          absolute paths, because a path that works on the author's machine is
          the one thing guaranteed not to work on anybody else's.
-      2. `~/.claude/gsd-gd.machine.json` - this machine's toolchain, written by
+      2. `~/.claude/gatekeeper.machine.json` - this machine's toolchain, written by
          `gd setup`. Outside the install payload so upgrades cannot destroy it.
       3. `.planning/config.json` - this game's overrides, under the game's own
          version control.
@@ -662,7 +662,7 @@ def cmd_setup(a) -> int:
         print("  (--godot/--blender set one explicitly, --force skips this note.)")
 
     print("")
-    print("  GSD-GameDev setup")
+    print("  Gatekeeper setup")
     print("  platform   %s" % sys.platform)
     print("  system     %s" % SYS_DIR)
     print("  writing    %s" % MACHINE_CONFIG)
@@ -843,9 +843,9 @@ def cmd_doctor(a) -> int:
     # Working in the system's own source checkout is legitimate (that is how the
     # system itself is developed) but a game scaffolded there gets committed to
     # the system's repo by accident. Say so without failing.
-    if not inside and (WORK / "gsd-gd" / "config.json").exists():
+    if not inside and (WORK / "gatekeeper" / "config.json").exists():
         checks.append({"check": "work_root_is_system_repo", "ok": False,
-                       "detail": "%s looks like the GSD-GameDev source repo. A game "
+                       "detail": "%s looks like the Gatekeeper source repo. A game "
                                  "created here lands in the system's own history. "
                                  "Work in a directory of its own, or set GD_PROJECT."
                                  % WORK})
@@ -908,8 +908,8 @@ def cmd_init(a) -> int:
             "       The system is shared by every project on this machine and is\n"
             "       replaced wholesale on upgrade. cd to the directory you want\n"
             "       the game to live in, or set GD_PROJECT to it." % SYS_DIR)
-    if (WORK / "gsd-gd" / "config.json").exists() and not a.force:
-        die("%s is the GSD-GameDev source repo itself.\n"
+    if (WORK / "gatekeeper" / "config.json").exists() and not a.force:
+        die("%s is the Gatekeeper source repo itself.\n"
             "       A game created here would be committed to the system's own\n"
             "       history. cd to a directory of its own (or set GD_PROJECT), or\n"
             "       pass --force if you genuinely mean to scaffold here." % WORK)
@@ -1861,7 +1861,7 @@ def cmd_roadmap(a) -> int:
         print("  space and ends in a reachable failure state; every Core Loop beat")
         print("  and every placeholder names the stage that delivers it.")
     else:
-        print("\n  Fix ROADMAP.md (see gsd-gd/references/decomposition.md), then re-run.")
+        print("\n  Fix ROADMAP.md (see gatekeeper/references/decomposition.md), then re-run.")
     return 0 if ok else 1
 
 
@@ -1875,7 +1875,7 @@ def cmd_config(a) -> int:
             die(str(p) + " already exists (use --force)")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({
-            "_doc": ("Per-project overrides, deep-merged over gsd-gd/config.json. "
+            "_doc": ("Per-project overrides, deep-merged over gatekeeper/config.json. "
                      "Set ONLY what differs from the machine default - anything "
                      "absent here inherits. This file is the reason one game's "
                      "numbers are not every game's numbers."),
@@ -2145,7 +2145,7 @@ _GATE_TOOL_RE = re.compile(
     r"""(?<![\w/\\.-])                       # not mid-token
         (?:(?:python3?|py)\s+)?               # an optional interpreter
         (?:\.[/\\])?                          # an optional ./
-        (?:gsd-gd[/\\]bin[/\\])?              # an optional repo-relative dir
+        (?:(?:gatekeeper|gsd-gd)[/\\]bin[/\\])?   # an optional repo-relative dir
         (gd|gddoc)(?:\.py)?                   # the tool itself
         (?=\s|$)""",
     re.X)
@@ -2156,10 +2156,10 @@ def resolve_gate_cmd(cmd: str) -> str:
 
     Gate lines live in a project's `PLAN.md`, which is that project's contract
     and is committed to that project's repo. They were written as
-    `python gsd-gd/bin/gd.py check`, which resolves only when the working
+    `python gatekeeper/bin/gd.py check`, which resolves only when the working
     directory happens to contain the system - i.e. only inside this repo. In
     every real installation the gate failed with `python: can't open file
-    .../<game>/gsd-gd/bin/gd.py`, so no phase outside the system's own checkout
+    .../<game>/gatekeeper/bin/gd.py`, so no phase outside the system's own checkout
     could ever go green.
 
     Rewriting here rather than at authoring time keeps the contract portable: a
@@ -2858,9 +2858,9 @@ def cmd_check(a) -> int:
                   % (f.get("line"), f.get("kind"), f.get("symbol"), f.get("detail")))
     if not ok:
         print("\n  Look the API up before rewriting:")
-        print("    python gsd-gd/bin/gddoc.py member <Class>.<member>")
-        print("    python gsd-gd/bin/gddoc.py class <Class>")
-        print("    python gsd-gd/bin/gddoc.py search <keyword>")
+        print("    python gatekeeper/bin/gddoc.py member <Class>.<member>")
+        print("    python gatekeeper/bin/gddoc.py class <Class>")
+        print("    python gatekeeper/bin/gddoc.py search <keyword>")
     return 0 if ok else 1
 
 
@@ -2871,7 +2871,7 @@ def project_budget() -> dict:
     """Budget for THIS game.
 
     One source of truth: `.planning/config.json` overrides the machine defaults
-    in `gsd-gd/config.json`, deep-merged by cfg(). `BUDGET.md` justifies the
+    in `gatekeeper/config.json`, deep-merged by cfg(). `BUDGET.md` justifies the
     numbers in prose and holds the cost model; it does not carry them, because
     two places holding the same value means the wrong one eventually wins - and
     it did, silently, on the first try.
@@ -3304,7 +3304,7 @@ def write_project_gd(proj: Path) -> Path:
     lines = [
         "class_name GDProject",
         "## GENERATED by `gd palette` / `gd playtest` from the effective config",
-        "## (gsd-gd/config.json overridden by .planning/config.json). Do not edit.",
+        "## (gatekeeper/config.json overridden by .planning/config.json). Do not edit.",
         "##",
         "## These are THIS project's numbers. Read them instead of hardcoding a",
         "## budget in game code - a literal here is a number that disagrees with",
@@ -3399,7 +3399,7 @@ def cmd_credits(a) -> int:
 # argparse
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="gd", description="GSD-GameDev toolchain CLI")
+    ap = argparse.ArgumentParser(prog="gd", description="Gatekeeper toolchain CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("setup", help="detect Godot and Blender on this machine and "

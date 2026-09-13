@@ -2,7 +2,7 @@
 
 How to write a generator that produces an asset worth putting in the game.
 
-Read `gsd-gd/lib/gdblend/__init__.py` for the API. This file is about judgement.
+Read `gatekeeper/lib/gdblend/__init__.py` for the API. This file is about judgement.
 
 ---
 

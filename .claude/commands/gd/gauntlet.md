@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 
 # /gd:gauntlet — one task, many candidates, an independent judge
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 Target: **$ARGUMENTS**
 
@@ -69,8 +69,8 @@ finding, and it is cheap.
 
 Each candidate must produce a runnable artefact and its numbers:
 ```bash
-python gsd-gd/bin/gd.py asset generators/<candidate>.py     # -> metrics + GLB
-python gsd-gd/bin/gd.py playtest lab/<candidate>.json       # -> verdict + shots
+python gatekeeper/bin/gd.py asset generators/<candidate>.py     # -> metrics + GLB
+python gatekeeper/bin/gd.py playtest lab/<candidate>.json       # -> verdict + shots
 ```
 
 ### 3. Render every candidate the same way

@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Skill
 
 # /gd:perf — triage in cost order
 
-@gsd-gd/references/godot-patterns.md
+@gatekeeper/references/godot-patterns.md
 
 Subject: **$ARGUMENTS**
 
@@ -21,7 +21,7 @@ A budget met at the spawn point is not met. Use (or build) a plan that stands
 where the most is visible, facing the most expensive direction.
 
 ```bash
-python gsd-gd/bin/gd.py playtest lab/perf_worst_case
+python gatekeeper/bin/gd.py playtest lab/perf_worst_case
 ```
 
 Record `fps_avg`, `fps_1pct_low`, `frame_ms_worst`, `draw_calls_max`,
@@ -65,7 +65,7 @@ attribute will come back, and next time you will not remember what you tried.
 - accepted an overspend → add a Deviations row with the reason and a revisit
   date. An unrecorded overspend quietly becomes the new normal.
 
-New cost knowledge goes into `gsd-gd/references/godot-patterns.md` so the next
+New cost knowledge goes into `gatekeeper/references/godot-patterns.md` so the next
 phase does not rediscover it.
 
 ## Finish

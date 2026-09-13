@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 # /gd:ship — close the phase honestly
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 Phase: **$ARGUMENTS** (empty = current phase from STATE.md)
 
@@ -18,9 +18,9 @@ that trust is earned rather than assumed.
 Not "green last week". Re-run them.
 
 ```bash
-python gsd-gd/bin/gd.py godot import
-for p in game/*/lab/*.json; do python gsd-gd/bin/gd.py playtest "$p" || echo "FAILED: $p"; done
-for g in game/*/generators/*.py; do python gsd-gd/bin/gd.py asset "$g" || echo "FAILED: $g"; done
+python gatekeeper/bin/gd.py godot import
+for p in game/*/lab/*.json; do python gatekeeper/bin/gd.py playtest "$p" || echo "FAILED: $p"; done
+for g in game/*/generators/*.py; do python gatekeeper/bin/gd.py asset "$g" || echo "FAILED: $g"; done
 ```
 
 Every generator must still reproduce its asset. Law 7: if a generator no longer
@@ -61,8 +61,8 @@ Take the numbers from the worst-case plan's verdict, not the spawn point.
 ## 4. Advance and revise the roadmap
 
 ```bash
-python gsd-gd/bin/gd.py roadmap done <stage id>
-python gsd-gd/bin/gd.py roadmap
+python gatekeeper/bin/gd.py roadmap done <stage id>
+python gatekeeper/bin/gd.py roadmap
 ```
 
 The first marks the stage done and advances `current stage`. The second
@@ -112,11 +112,11 @@ system changes.
 
 The part everyone skips, and the part that compounds.
 
-- **Engine gotchas** discovered this phase → `gsd-gd/references/toolchain.md`
-- **Patterns that worked** → `gsd-gd/references/godot-patterns.md` or
+- **Engine gotchas** discovered this phase → `gatekeeper/references/toolchain.md`
+- **Patterns that worked** → `gatekeeper/references/godot-patterns.md` or
   `blender-patterns.md`
 - **Model observations** (which model produced the accepted work, where one
-  clearly beat another) → `gsd-gd/references/model-routing.md`
+  clearly beat another) → `gatekeeper/references/model-routing.md`
 - **Decisions made** → `.planning/CONTEXT.md`, each with its reason
 - **What the plan got wrong** — jobs that were really two jobs, waves that were
   not actually parallel, gates that passed for the wrong reason. Write it in the
@@ -125,8 +125,8 @@ The part everyone skips, and the part that compounds.
 ## 7. Archive and commit
 
 ```bash
-python gsd-gd/bin/gd.py state beat frame          # next milestone starts at frame
-python gsd-gd/bin/gd.py state phase none
+python gatekeeper/bin/gd.py state beat frame          # next milestone starts at frame
+python gatekeeper/bin/gd.py state phase none
 git add -A && git commit -m "ship phase NN-<slug>: <one line>"
 git tag "phase-NN-<slug>"
 ```
@@ -138,7 +138,7 @@ git tag "phase-NN-<slug>"
 Only if the user asks. This is a Godot **source build**, so the export templates
 are the ones beside the configured engine binary (`gd config` prints its path) —
 `export_presets.cfg` must point at those paths, not at downloaded templates.
-See `gsd-gd/references/toolchain.md`.
+See `gatekeeper/references/toolchain.md`.
 
 ## Finish
 

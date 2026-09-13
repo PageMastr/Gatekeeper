@@ -6,8 +6,8 @@ allowed-tools: Read, Bash, Glob, Grep
 # /gd:next
 
 ```bash
-python gsd-gd/bin/gd.py state
-python gsd-gd/bin/gd.py phase current
+python gatekeeper/bin/gd.py state
+python gatekeeper/bin/gd.py phase current
 ```
 
 Work down this table and stop at the first row that matches. The order encodes
@@ -17,8 +17,8 @@ more building.
 Also read the driver's own view, which is authoritative about the current phase:
 
 ```bash
-python gsd-gd/bin/gd.py run status 2>/dev/null
-python gsd-gd/bin/gd.py run next 2>/dev/null
+python gatekeeper/bin/gd.py run status 2>/dev/null
+python gatekeeper/bin/gd.py run next 2>/dev/null
 ```
 
 | condition | next |

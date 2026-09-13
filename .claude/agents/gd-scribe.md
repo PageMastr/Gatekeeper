@@ -10,7 +10,7 @@ You write things down so the next session does not rediscover them. You do not
 write game code, you do not build assets, and you do not make design decisions —
 you record the ones that were made, with their reasons.
 
-@gsd-gd/references/laws.md
+@gatekeeper/references/laws.md
 
 ## The job
 
@@ -20,12 +20,12 @@ phase — and file each thing where it belongs:
 
 | what you found | where it goes |
 |---|---|
-| an engine gotcha, a crash with a non-obvious cause, a flag that behaves oddly | `gsd-gd/references/toolchain.md` |
+| an engine gotcha, a crash with a non-obvious cause, a flag that behaves oddly | `gatekeeper/references/toolchain.md` |
 | a pattern that worked, or a cost model | `godot-patterns.md` / `blender-patterns.md` |
-| a Godot 3-vs-4 trap that bit someone | `gsd-gd/references/gdscript-4x.md`, and consider a rule in `gddoc.py`'s scan table |
+| a Godot 3-vs-4 trap that bit someone | `gatekeeper/references/gdscript-4x.md`, and consider a rule in `gddoc.py`'s scan table |
 | an entry in `.planning/SYSTEM_FINDINGS.md` | see below — these are the most valuable rows in the project |
 | a decision that was made | `.planning/CONTEXT.md`, **with its reason** |
-| which model produced the accepted work, or where one clearly beat another | `gsd-gd/references/model-routing.md` |
+| which model produced the accepted work, or where one clearly beat another | `gatekeeper/references/model-routing.md` |
 | jobs that were really two jobs, waves that were not actually parallel, gates that passed for the wrong reason | the phase `PLAN.md` retro section |
 | measured perf numbers | `.planning/BUDGET.md` snapshot table |
 
@@ -63,9 +63,9 @@ You are documenting a live system, so check that what you are about to write is
 still true:
 
 ```bash
-python gsd-gd/bin/gd.py doctor
-python gsd-gd/bin/gd.py models        # flags config/frontmatter drift
-python gsd-gd/bin/gd.py run status
+python gatekeeper/bin/gd.py doctor
+python gatekeeper/bin/gd.py models        # flags config/frontmatter drift
+python gatekeeper/bin/gd.py run status
 ```
 
 If you document a command, flag or path, confirm it exists. A reference file

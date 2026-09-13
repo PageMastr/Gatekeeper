@@ -7,13 +7,13 @@ model actually has taste.
 
 ## Where the routing lives
 
-**`gsd-gd/config.json` → `models` is the single source of truth.** Each agent's
+**`gatekeeper/config.json` → `models` is the single source of truth.** Each agent's
 starting model is stored there *with the reason it was chosen*, because a routing
 decision without a reason gets changed back by the next person who looks at the
 bill.
 
 ```bash
-python gsd-gd/bin/gd.py models      # the table, plus drift detection
+python gatekeeper/bin/gd.py models      # the table, plus drift detection
 ```
 
 Two places name a model and they must agree: `models.agents` in the config (what

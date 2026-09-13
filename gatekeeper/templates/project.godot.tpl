@@ -1,11 +1,11 @@
-; Godot project scaffolded by GSD-GameDev (`gd init`).
+; Godot project scaffolded by Gatekeeper (`gd init`).
 ; Godot 4.7 - Forward+ renderer.
 config_version=5
 
 [application]
 
 config/name="{{NAME}}"
-config/description="Built with GSD-GameDev. See ../../.planning/ for the contracts."
+config/description="Built with Gatekeeper. See ../../.planning/ for the contracts."
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 

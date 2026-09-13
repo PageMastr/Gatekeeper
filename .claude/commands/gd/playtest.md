@@ -6,8 +6,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 
 # /gd:playtest — measure, look, budget
 
-@gsd-gd/references/playtest-recipes.md
-@gsd-gd/references/laws.md
+@gatekeeper/references/playtest-recipes.md
+@gatekeeper/references/laws.md
 
 Plan: **$ARGUMENTS** (empty = every plan in `game/<slug>/lab/`)
 
@@ -18,12 +18,12 @@ measure pass is how it ends up pretty and unplayable.
 ## 1. Measure
 
 ```bash
-python gsd-gd/bin/gd.py playtest <plan>
+python gatekeeper/bin/gd.py playtest <plan>
 ```
 
 Runs every plan if none is named:
 ```bash
-for p in game/*/lab/*.json; do python gsd-gd/bin/gd.py playtest "$p"; done
+for p in game/*/lab/*.json; do python gatekeeper/bin/gd.py playtest "$p"; done
 ```
 
 Read the `detail` on **every** check, passing ones included. A check that
@@ -85,7 +85,7 @@ Set it when **all three** hold:
 3. they answered *yes* to **would I press start again?**
 
 ```bash
-python gsd-gd/bin/gd.py state greybox_passed yes
+python gatekeeper/bin/gd.py state greybox_passed yes
 ```
 
 If the person said no, leave it `no` and say so — the fix is in
@@ -96,7 +96,7 @@ certifies the scripted path cannot see what a player does with half of it.
 ## Finish
 
 ```bash
-python gsd-gd/bin/gd.py state last_verdict "<n passed, m failed>"
+python gatekeeper/bin/gd.py state last_verdict "<n passed, m failed>"
 ```
 
 Report: each plan's verdict with its numbers, the critic's findings verbatim

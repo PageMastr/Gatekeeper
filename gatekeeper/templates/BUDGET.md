@@ -12,7 +12,7 @@
 > gd config                 # what is in force, and what this project overrode
 > ```
 >
-> `gsd-gd/config.json` in the install root holds machine defaults only. It is
+> `gatekeeper/config.json` in the install root holds machine defaults only. It is
 > shared by every game here, so a number set there is a number set for all of
 > them — which is why per-project overrides exist.
 

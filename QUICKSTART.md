@@ -1,18 +1,34 @@
 # Quickstart
 
+## Before anything
+
+You need **Python 3.10+**, **Godot 4.4+** (an editor build, not an export
+template), **Blender 4.0+**, **git**, and
+[Claude Code](https://claude.com/claude-code).
+
+A Godot release download from [godotengine.org](https://godotengine.org) is
+fine — no source checkout needed.
+
 ## Once per machine
 
-```
+```bash
+git clone https://github.com/PageMastr/Gatekeeper.git
+cd Gatekeeper
 python install.py
 ```
 
-Copies the system into `~/.claude/` and runs `gd setup`, which finds Godot and
-Blender wherever they live and asks only for what it cannot find. You need
-Godot 4.4+, Blender 4.0+, Python 3.10+ and git. No Godot source checkout is
-needed — a release download is fine.
+That copies the system into `~/.claude/` and runs `gd setup`, which searches
+your machine for Godot and Blender, verifies each by running it, and asks only
+for what it cannot find. If autodetection misses:
 
-Your engine paths go to `~/.claude/gsd-gd.machine.json`, which no upgrade
-touches.
+```bash
+gd setup --godot <path-to-godot> --blender <path-to-blender>
+```
+
+Your engine paths go to `~/.claude/gatekeeper.machine.json`, which no upgrade
+ever touches. Nothing else is machine-specific.
+
+Restart Claude Code so it picks up the new commands.
 
 ## Then, per game
 
@@ -133,7 +149,7 @@ thing to do, not a menu.
 
 ---
 
-## Five things that will surprise you
+## Six things that will surprise you
 
 1. **It refuses to make art until the whole game works in grey.** Not a sample
    room — every space, every system, the loop closing, and a way to lose. `gd
@@ -164,23 +180,8 @@ thing to do, not a menu.
 | Engine commands produce no output on Windows | You are on the plain `.exe`. `gd setup` prefers the `.console.exe`; check `gd config` |
 | "no Godot project found" | You're outside the game dir. `cd` to it, or set `GD_PROJECT` |
 | Contracts belong to the wrong game | `gd doctor` prints `system` and `work` roots — `work` is wrong |
+| A game got created in the wrong folder | `gd doctor` prints `work`; move the `.planning/` and `game/` dirs, or set `GD_PROJECT` |
 | A job fails 9 times | The gate is testing the wrong thing, or the job is two jobs. Re-cut it |
 | Everything looks black | Correct for `deep_night` with no local light yet. That's `/gd:light` |
 | Upgraded or rebuilt Godot | `gd setup --force` (re-detects and re-indexes), or `gddoc index --force` |
 | Installed over an existing setup and lost paths | You should not — the machine config sits outside the payload. If it did happen, `gd setup` restores it in seconds |
-| A game got created in the wrong folder | `gd doctor` prints `work`; move the `.planning/` and `game/` dirs, or set `GD_PROJECT` |
-
----
-
-## Where the depth is
-
-You never need these to use the system, but they're what it's built on:
-
-| | |
-|---|---|
-| `references/laws.md` | the 14 rules, and why each exists |
-| `references/decomposition.md` | how a whole game becomes stackable stages |
-| `references/godot-patterns.md` | footprint textures, lighting, occlusion, gait |
-| `references/blender-patterns.md` | generators, kits, foliage, decimation |
-| `references/gdscript-4x.md` | the Godot 3 → 4 traps |
-| `references/playtest-recipes.md` | writing gates, reading verdicts |

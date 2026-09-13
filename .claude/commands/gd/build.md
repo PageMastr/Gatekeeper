@@ -6,20 +6,20 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 
 # /gd:build — run the waves
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/model-routing.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/model-routing.md
 
 Target: **$ARGUMENTS** (empty = next incomplete wave)
 
 ## Preconditions
 
 ```bash
-python gsd-gd/bin/gd.py state
-python gsd-gd/bin/gd.py phase current
+python gatekeeper/bin/gd.py state
+python gatekeeper/bin/gd.py phase current
 ```
 
 ```bash
-python gsd-gd/bin/gd.py roadmap status
+python gatekeeper/bin/gd.py roadmap status
 ```
 
 - **Asset work needs `greybox_passed: yes`.** `gd run init` refuses a plan
@@ -64,8 +64,8 @@ For each returned job, in this order:
 
 1. **Did its gate pass?** Run it yourself; do not take the agent's word.
    ```bash
-   python gsd-gd/bin/gd.py asset <generator>        # asset jobs
-   python gsd-gd/bin/gd.py playtest <plan>          # mechanics jobs
+   python gatekeeper/bin/gd.py asset <generator>        # asset jobs
+   python gatekeeper/bin/gd.py playtest <plan>          # mechanics jobs
    ```
    `gd asset` fails on contract violations (palette, dims, grid, tri budget);
    `gd playtest` fails on checks, budgets and runtime script errors.
@@ -93,7 +93,7 @@ git add -A && git commit -m "job NN-<slug>: <what it does>"
 ## After the wave
 
 ```bash
-python gsd-gd/bin/gd.py state last_verdict "<pass/fail summary>"
+python gatekeeper/bin/gd.py state last_verdict "<pass/fail summary>"
 ```
 
 Update the phase `PLAN.md` job table with status, and STATE.md's "What just

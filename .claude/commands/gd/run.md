@@ -6,8 +6,8 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent, Skill
 
 # /gd:run — run the phase until it is green or it needs you
 
-@gsd-gd/references/laws.md
-@gsd-gd/references/model-routing.md
+@gatekeeper/references/laws.md
+@gatekeeper/references/model-routing.md
 
 Target: **$ARGUMENTS** (empty = the current phase from STATE.md)
 
@@ -23,12 +23,12 @@ later wave, never change a job's model by hand — if you do, the ladder and the
 resumability both break.
 
 ```bash
-python gsd-gd/bin/gd.py run init      # first time in a phase (parses PLAN.md)
-python gsd-gd/bin/gd.py run next      # -> dispatch | in_flight | checkpoint | phase_gate | ship | stop
-python gsd-gd/bin/gd.py run start <job>            # BEFORE dispatching it
-python gsd-gd/bin/gd.py run record <job> pass|fail --note "..." --verdict <path>
-python gsd-gd/bin/gd.py run gate      # runs the phase gate commands
-python gsd-gd/bin/gd.py run status    # the whole board
+python gatekeeper/bin/gd.py run init      # first time in a phase (parses PLAN.md)
+python gatekeeper/bin/gd.py run next      # -> dispatch | in_flight | checkpoint | phase_gate | ship | stop
+python gatekeeper/bin/gd.py run start <job>            # BEFORE dispatching it
+python gatekeeper/bin/gd.py run record <job> pass|fail --note "..." --verdict <path>
+python gatekeeper/bin/gd.py run gate      # runs the phase gate commands
+python gatekeeper/bin/gd.py run status    # the whole board
 ```
 
 **Call `run start <job>` before you dispatch it.** Without it a job being worked
@@ -43,8 +43,8 @@ the last run, and `/gd:ship`'s retro wants the history.
 ## Preconditions
 
 ```bash
-python gsd-gd/bin/gd.py state
-python gsd-gd/bin/gd.py run status || python gsd-gd/bin/gd.py run init
+python gatekeeper/bin/gd.py state
+python gatekeeper/bin/gd.py run status || python gatekeeper/bin/gd.py run init
 ```
 
 - **Law 1 is enforced by the tool.** `gd run init` refuses a plan containing
@@ -69,7 +69,7 @@ Repeat until `run next` returns `stop`, `checkpoint`, or a green `phase_gate`:
 ### 1. Ask what is next
 
 ```bash
-python gsd-gd/bin/gd.py run next
+python gatekeeper/bin/gd.py run next
 ```
 
 ### 2. `action: in_flight`
@@ -103,16 +103,16 @@ nobody can review.
 Do not take an agent's word for it. Run its gate:
 
 ```bash
-python gsd-gd/bin/gd.py check                     # any job that touched .gd
-python gsd-gd/bin/gd.py asset <generator>         # asset jobs
-python gsd-gd/bin/gd.py playtest <plan>           # mechanics jobs
+python gatekeeper/bin/gd.py check                     # any job that touched .gd
+python gatekeeper/bin/gd.py asset <generator>         # asset jobs
+python gatekeeper/bin/gd.py playtest <plan>           # mechanics jobs
 ```
 
 Then record the truth:
 
 ```bash
-python gsd-gd/bin/gd.py run record <job> pass --note "<measured result>"
-python gsd-gd/bin/gd.py run record <job> fail --note "<which check, actual vs wanted>"
+python gatekeeper/bin/gd.py run record <job> pass --note "<measured result>"
+python gatekeeper/bin/gd.py run record <job> fail --note "<which check, actual vs wanted>"
 ```
 
 The `--note` is what the next attempt reads. "gate red" is useless; "player_moved
@@ -151,7 +151,7 @@ gauntlet."*)
 forecloses, and ask the user. Then:
 
 ```bash
-python gsd-gd/bin/gd.py run resolve <after_job> --note "<decision and why>"
+python gatekeeper/bin/gd.py run resolve <after_job> --note "<decision and why>"
 ```
 
 Record it in `.planning/CONTEXT.md` with its reason before continuing.
@@ -159,7 +159,7 @@ Record it in `.planning/CONTEXT.md` with its reason before continuing.
 ### 7. `action: phase_gate`
 
 ```bash
-python gsd-gd/bin/gd.py run gate
+python gatekeeper/bin/gd.py run gate
 ```
 
 - **Green** → stop the loop and hand back to the user. Beat 6/7 are next.
@@ -207,7 +207,7 @@ Owned by `gd run record`, configured in `config.json` → `models`:
 haiku → sonnet → opus → fable
 ```
 
-Starting model per agent comes from `config.json`; `python gsd-gd/bin/gd.py models`
+Starting model per agent comes from `config.json`; `python gatekeeper/bin/gd.py models`
 prints the table and flags drift against the agent files.
 
 ## While it runs
