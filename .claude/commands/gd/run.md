@@ -24,7 +24,7 @@ resumability both break.
 
 ```bash
 python gsd-gd/bin/gd.py run init      # first time in a phase (parses PLAN.md)
-python gsd-gd/bin/gd.py run next      # -> dispatch | in_flight | checkpoint | phase_gate | stop
+python gsd-gd/bin/gd.py run next      # -> dispatch | in_flight | checkpoint | phase_gate | ship | stop
 python gsd-gd/bin/gd.py run start <job>            # BEFORE dispatching it
 python gsd-gd/bin/gd.py run record <job> pass|fail --note "..." --verdict <path>
 python gsd-gd/bin/gd.py run gate      # runs the phase gate commands
@@ -164,7 +164,19 @@ python gsd-gd/bin/gd.py run gate
   back (record it `fail` and loop); a budget failure means `/gd:perf`. Do not
   edit the gate to make it pass.
 
-### 8. `action: stop`
+### 8. `action: ship`
+
+All jobs passed, the phase gate is green, **and the source has not moved since
+it was green.** The phase is done. Stop the loop and hand back: `/gd:playtest`
+for the human pass, then `/gd:ship`.
+
+If the gate was green but the source has changed since, you get `phase_gate`
+again with the two fingerprints and a reason — re-run it. A gate result only
+describes the code it ran against, and `phase_gate: green` in STATE was
+previously immortal: one project's gate went green at 03:03Z and still read
+green eleven hours and one broken function later.
+
+### 9. `action: stop`
 
 Report the reason verbatim and stop. The usual reason is a job that exhausted
 the ladder — three attempts each at its tier, the next, and the top. When that

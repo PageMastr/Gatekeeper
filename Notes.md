@@ -1503,3 +1503,108 @@ Worth recording, because it says what not to touch:
    props, hero asset, character, textures, lighting, perf — is still
    theoretical. The system is well tested at the start of a game and untested in
    the middle of one.
+
+---
+
+# Loop 11 — 2026-09-13 13:52Z · overnight, and a gate with no expiry
+
+Run past the original ten, ~15 hours after loop 10.
+
+| game | jobs | passed | greybox_passed | next action | findings |
+|---|---|---|---|---|---|
+| Ringfall | 13 | 13 | **yes** | gate unverifiable → re-run | 3 |
+| the-last-lamp | 7 | 6 | no | `checkpoint` — *"Play it. Is one turn worth doing twice?"* | 1 |
+| henhouse | 9 | 7 | no | dispatch job 08 | 5 |
+| paper-boat | 6 | 6 | no | gate unverifiable → re-run | 4 |
+
+## Ringfall cleared its greybox, human gate included
+
+```
+greybox_passed: yes
+last_verdict:   stage 01 gate green: 220 checks across 18 plans,
+                0 runtime errors, 0 budget fails
+```
+
+**220 checks across 18 plans.** That is a complete greybox through the whole
+system — contracts, roadmap, 13 jobs in 6 waves, every job graded, the phase's
+own definition of done measured, and then a person playing it and saying yes.
+Law 1's gate closed the way it was designed to.
+
+the-last-lamp is at the same door, phrased by its own plan as *"Play it. Is one
+turn of this loop worth doing twice?"* — and committed `playtest: a person walked
+it and said the lo…` forty seconds before this sweep.
+
+## The escalation ladder paid off
+
+henhouse job 07, which loop 10 caught mid-climb, resolved:
+`last_verdict: 01-greybox job 07 pass (fable)`. Two critic send-backs on opus,
+escalated, and **the stronger tier fixed what three attempts at the lower one
+could not.** That is the ladder's entire premise, observed end to end without
+supervision.
+
+## 31 — a green phase gate never expired
+
+paper-boat reported `phase_gate: green` while `gd check` failed on
+`_push_soak_to_hull()` — a function called at `main.gd:63` and `:92` and never
+defined.
+
+Not a system fault in itself: the gate ran at `03:03:32Z`, `main.gd` was edited
+at `13:53:18Z`, and the work is uncommitted and in flight. The function is being
+written right now.
+
+**The fault is that STATE said `green` anyway, eleven hours and one broken
+function later.** A gate result describes the code it ran against and nothing
+else, and `phase_gate: green` was immortal. A resumed session reads STATE first
+and would have believed it.
+
+Fixed the same way harness staleness was fixed in loop 6 — record what the
+result was *against*:
+
+- `run gate` stamps a `source` fingerprint (every `.gd`/`.tscn`/`.tres`/`.py`
+  plus `lab/*.json`) into the gate run.
+- `run next` compares it. Green against unchanged source → new terminal action
+  **`ship`**. Green against *moved* source → `phase_gate` again, naming both
+  fingerprints.
+- `run status` prints the staleness and writes `phase_gate: stale` to STATE, so
+  the file a resumed session trusts stops lying.
+
+## 32 — and "no evidence" was reading as "green"
+
+First cut shipped a worse bug than the one it fixed: gate runs recorded *before*
+this change have no `source` field, so `last.get("source")` was falsy and the
+code fell straight through to `ship`. **paper-boat reported `ship` with a call to
+an undefined function in its source.**
+
+Absence of evidence must not read as green. A green gate with no recorded
+fingerprint is now `unverifiable`, not shippable:
+
+> the phase gate is green (2026-09-13T03:03:32Z) but recorded no source
+> fingerprint, so it cannot be shown to describe this code — re-run it to confirm
+
+Both Ringfall and paper-boat now say that instead of `ship`. A freshly-run gate
+still reaches `ship` normally.
+
+This is the second time in this exercise that my fix for a fault was worse than
+the fault, and both times the mechanism was the same: a conservative case
+falling through a truthiness check into the optimistic branch.
+
+## 33 — the driver had no end
+
+Until now `run next` returned `phase_gate` forever once all jobs passed, even
+with the gate already green — Ringfall sat in that state for fifteen hours. The
+driver could describe every state except *done*.
+
+`ship` is that state, and it carries the gate timestamp and the next two
+commands.
+
+## Carried forward
+
+1. **`--smoke` still unexercised.** Every kickoff so far predates it.
+2. **Nothing has reached stage 02.** Both leading games are now at the door of
+   their first `/gd:ship`, which remains the least-tested beat in the system —
+   along with the `SYSTEM_FINDINGS` sweep and the roadmap advancing.
+3. **13 findings filed across the four games**, up from 7 at loop 10. Most are
+   unread by me. Worth a dedicated pass rather than sampling them per loop.
+4. paper-boat's `_push_soak_to_hull()` is genuinely missing. Its own `gd check`
+   gate will catch it; noted only so it is not mistaken for a system fault next
+   sweep.

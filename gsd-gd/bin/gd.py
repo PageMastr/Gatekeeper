@@ -1195,6 +1195,40 @@ def parse_plan(plan: Path) -> dict:
     return {"jobs": jobs, "checkpoints": checkpoints, "phase_gate": gates}
 
 
+def source_fingerprint(proj: Path) -> str:
+    """Hash of everything a gate's result depends on.
+
+    A green phase gate had no expiry: STATE said `phase_gate: green`
+    indefinitely while the source moved underneath it. Observed - a gate green
+    at 03:03Z, and eleven hours later `gd check` failed on code edited since,
+    with STATE still claiming green. A resumed session believes STATE.
+
+    So a gate now records what it was green *against*, the same way the harness
+    records what was installed.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    if proj is None:
+        return ""
+    pats = ("*.gd", "*.tscn", "*.tres", "*.py")
+    files = []
+    for pat in pats:
+        files += [f for f in proj.rglob(pat)
+                  if ".godot" not in f.parts and ".gd_out" not in f.parts]
+    for f in sorted(files):
+        try:
+            h.update(str(f.relative_to(proj)).replace("\\", "/").encode())
+            h.update(f.read_bytes())
+        except OSError:
+            continue
+    lab = proj / "lab"
+    if lab.is_dir():
+        for f in sorted(lab.glob("*.json")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def archive_verdict(d: Path, jid: str, attempt: int, src=None):
     """Copy the verdict that graded an attempt into <phase>/verdicts/.
 
@@ -1388,6 +1422,7 @@ def cmd_run(a) -> int:
                             "exit": p.returncode, "tail": tail})
         ok = all(x["ok"] for x in results)
         r["gate_runs"].append({"at": now(), "ok": ok,
+                               "source": source_fingerprint(locate_project()),
                                "failed": [x["cmd"] for x in results if not x["ok"]]})
         if ok:
             r["status"] = "gate_green"
@@ -1458,6 +1493,14 @@ def cmd_run(a) -> int:
                      "phase_gate": r.get("phase_gate"),
                      "last_gate": (r.get("gate_runs") or [None])[-1]})
         print("  phase   %s   [%s]" % (d.name, r["status"]))
+        _g = (r.get("gate_runs") or [None])[-1]
+        if _g and _g.get("ok") and _g.get("source"):
+            _now = source_fingerprint(locate_project())
+            if _now != _g["source"]:
+                print("  GATE    green at %s against source %s, but source is now %s"
+                      % (_g["at"], _g["source"], _now))
+                print("          That result no longer describes this code. Re-run the gate.")
+                write_state("phase_gate", "stale")
         if sys_changed:
             print("  SYSTEM  changed mid-phase: armed on %s, now %s" % (armed_sys, cur_sys))
             print("          Jobs graded before the change used a different toolchain."
@@ -1521,6 +1564,32 @@ def run_next(r: dict) -> dict:
                     "why": "one-way door after job %s: %s"
                            % (open_ck[0]["after_job"], open_ck[0]["decision"])}
 
+    gates = r.get("gate_runs") or []
+    last = gates[-1] if gates else None
+    if last and last.get("ok"):
+        src_now = source_fingerprint(locate_project())
+        if not last.get("source"):
+            # A green gate with nothing recorded about what it ran against is
+            # unverifiable, not shippable. Absence of evidence must not read as
+            # green - observed: a gate green at 03:03Z still reporting ship
+            # eleven hours later, with a call to an undefined function in the
+            # code since.
+            return {"action": "phase_gate",
+                    "why": ("the phase gate is green (%s) but recorded no source "
+                            "fingerprint, so it cannot be shown to describe this "
+                            "code - re-run it to confirm" % last["at"]),
+                    "unverifiable": True, "phase_gate": r.get("phase_gate", [])}
+        if last["source"] != src_now:
+            return {"action": "phase_gate",
+                    "why": ("the phase gate was green against source %s, but the "
+                            "source is now %s - re-run it"
+                            % (last["source"], src_now)),
+                    "stale": True, "phase_gate": r.get("phase_gate", [])}
+        return {"action": "ship",
+                "why": "all jobs passed and the phase gate is green (%s) - this phase "
+                       "is done; /gd:playtest for the human pass, then /gd:ship"
+                       % last["at"],
+                "gate_at": last["at"]}
     return {"action": "phase_gate", "why": "all jobs passed - run the phase gate",
             "phase_gate": r.get("phase_gate", [])}
 
