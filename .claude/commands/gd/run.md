@@ -47,11 +47,14 @@ python gsd-gd/bin/gd.py state
 python gsd-gd/bin/gd.py run status || python gsd-gd/bin/gd.py run init
 ```
 
-- **Law 1 check.** If this phase contains asset work (any `gd-modeler` job, or a
-  job whose gate is `gd asset ...`) **and** `greybox_passed` is `no`, stop and
-  say so — the honest move is to finish the greybox phase first. Driving the
-  greybox phase itself with `greybox_passed: no` is exactly correct; that is
-  what it is for.
+- **Law 1 is enforced by the tool.** `gd run init` refuses a plan containing
+  asset work (`gd-modeler` jobs, `gd asset` gates, `generators/` in `touches`)
+  until the greybox block is finished *and* `greybox_passed: yes`. It names which
+  greybox stages are still open. If you hit that, the honest move is to finish
+  the block — not to reword the plan until it gets past the check.
+- Driving a greybox-block stage with `greybox_passed: no` is exactly correct;
+  that is what the block is for. `gd run status` prints how many of the block's
+  stages are done.
 - `PLAN.md` must have real job rows and at least one `- gate:` line. A phase with
   no machine-readable definition of done cannot be driven; send it back to
   `/gd:plan`.
@@ -170,11 +173,16 @@ All jobs passed, the phase gate is green, **and the source has not moved since
 it was green.** The phase is done. Stop the loop and hand back: `/gd:playtest`
 for the human pass, then `/gd:ship`.
 
-**Say explicitly that `greybox_passed` is still `no` if it is**, and that
-`/gd:playtest` is what sets it. You never set it yourself — you have no way to
-know whether a person played it.  A driven phase has no other route to that
-flag, and a project that does not know it needs `/gd:playtest` will sit on
-`greybox_passed: no` indefinitely while later stages refuse asset work.
+**Say explicitly that `greybox_passed` is still `no` if it is**, and what that
+means for this phase:
+
+- if this was a **middle** stage of the greybox block, that is expected — advance
+  the roadmap (`gd roadmap done <id>`) and plan the next block stage.
+- if this was the **last** greybox stage, `/gd:playtest` is the next step and it
+  is what sets the flag. You never set it yourself — you have no way to know
+  whether a person played it. A driven phase has no other route to that flag, and
+  a project that does not know it needs `/gd:playtest` will sit on
+  `greybox_passed: no` indefinitely while later stages refuse asset work.
 
 If the gate was green but the source has changed since, you get `phase_gate`
 again with the two fingerprints and a reason — re-run it. A gate result only

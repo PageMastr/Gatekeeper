@@ -18,11 +18,12 @@ You answer "how does this actually work in 4.7" with evidence, not recall.
    python gsd-gd/bin/gddoc.py class <Class> --full
    python gsd-gd/bin/gddoc.py member <Class>.<member>
    ```
-2. **The engine source** at `D:/Godot/GodotEngine` - the same tree this binary
+2. **The engine source**, when this machine has a checkout - the same tree the binary
    was built from, so it is authoritative for behaviour the XML does not
    explain:
    ```bash
-   grep -rn "<symbol>" D:/Godot/GodotEngine/scene/ D:/Godot/GodotEngine/core/ D:/Godot/GodotEngine/servers/
+   SRC=$(python gsd-gd/bin/gd.py config | grep -o 'source_root[^,]*')   # or: gd config
+   grep -rn "<symbol>" "$SRC/scene/" "$SRC/core/" "$SRC/servers/"
    ```
 3. **The project itself** - how have we already solved something similar?
 4. **The internet, last.** This build is `4.7.2-rc`. Most Godot material online

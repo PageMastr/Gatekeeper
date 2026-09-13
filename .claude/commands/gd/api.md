@@ -43,10 +43,13 @@ python gsd-gd/bin/gddoc.py class <Class> --full # read what it actually does
 ```
 
 For behaviour the XML does not explain, read the engine source at
-`D:/Godot/GodotEngine` — it is the same tree this binary was built from:
+the engine source tree, **if this machine has one** — it is the same tree the
+binary was built from. `gd config` prints `toolchain.godot.source_root`; a blank
+value means there is no checkout here and the class reference is the whole
+answer:
 
 ```bash
-grep -rn "<symbol>" D:/Godot/GodotEngine/scene/ D:/Godot/GodotEngine/core/
+grep -rn "<symbol>" "$SOURCE_ROOT/scene/" "$SOURCE_ROOT/core/"
 ```
 
 ## Maintenance
@@ -56,7 +59,9 @@ python gsd-gd/bin/gddoc.py index --force   # after rebuilding or upgrading the e
 ```
 
 The index is `gsd-gd/cache/godot-api-index.json`, built from
-`D:/Godot/GodotEngine/doc/classes/` and each module's `doc_classes/`. It is
+`<source_root>/doc/classes/` and each module's `doc_classes/` — or, with no
+source tree, from `godot --doctool`, which makes the binary dump the same XML it
+was compiled with. It is
 version-locked to the binary because it comes from the binary's own source tree
 — if the engine is rebuilt from a newer checkout, re-index or the reference and
 the runtime will disagree.

@@ -6,12 +6,20 @@ renamed, moved or deleted a large part of the API, so recalled-from-memory
 GDScript is wrong in ways that look right. Guessing is not acceptable when the
 correct signature is sitting on this disk.
 
-The source of truth is the engine's own XML class reference, from the *same
-source tree the binary was built from* - so it cannot drift from the running
-engine:
+The source of truth is the engine's own XML class reference, so it cannot drift
+from the running engine. It is obtained one of two ways, in this order:
 
-    D:/Godot/GodotEngine/doc/classes/*.xml          (810 core classes)
-    D:/Godot/GodotEngine/modules/*/doc_classes/*.xml (261 module classes)
+  1. An engine **source checkout**, if `toolchain.godot.source_root` names one:
+         <source_root>/doc/classes/*.xml
+         <source_root>/modules/*/doc_classes/*.xml
+  2. Otherwise the **binary generates its own**, with `--doctool`. Every Godot
+     build can dump the class reference it was compiled with, which is what
+     makes this tool work for someone who downloaded a release zip and has no
+     source tree at all. That case is the normal one outside this repo.
+
+Either way the XML comes from the same build as the running engine - which is
+the whole point. The index is cached per engine version outside the install, so
+two engines on one machine cannot serve each other's API.
 
 Verbs:
     gddoc index [--force]         build/refresh the symbol index
@@ -28,6 +36,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -41,20 +50,115 @@ for _s in (sys.stdout, sys.stderr):
 
 # Derived from this file's location so the tool works wherever it is installed.
 SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
-CACHE = SYS_DIR / "cache"
-INDEX = CACHE / "godot-api-index.json"
+
+
+def _claude_home() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
+
+
+# Caches live beside the install, never inside it. The install root is shared by
+# every project on the machine and, with `install.py --link`, is a live git
+# checkout - writing derived megabytes into it dirties the repo and makes two
+# concurrent projects race over one file.
+CACHE = Path(os.environ.get("GD_CACHE_DIR") or (_claude_home() / "gsd-gd-cache"))
 
 
 def cfg() -> dict:
-    return json.loads((SYS_DIR / "config.json").read_text(encoding="utf-8"))
+    """Same three-layer merge `gd` uses: shipped, machine, then env.
+
+    A project override is deliberately NOT read here: the API index describes
+    the engine binary, which is a property of the machine, and keying a shared
+    cache off a per-project value would let one game poison another's lookups.
+    """
+    base = json.loads((SYS_DIR / "config.json").read_text(encoding="utf-8"))
+    mc = Path(os.environ.get("GD_MACHINE_CONFIG")
+              or (_claude_home() / "gsd-gd.machine.json"))
+    if mc.exists():
+        try:
+            over = json.loads(mc.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            over = {}
+        for k, v in (over.get("toolchain") or {}).items():
+            if isinstance(v, dict):
+                base.setdefault("toolchain", {}).setdefault(k, {}).update(v)
+    tc = base.setdefault("toolchain", {})
+    if os.environ.get("GD_GODOT"):
+        tc.setdefault("godot", {})["console"] = os.environ["GD_GODOT"]
+    if os.environ.get("GD_GODOT_SOURCE"):
+        tc.setdefault("godot", {})["source_root"] = os.environ["GD_GODOT_SOURCE"]
+    return base
+
+
+def godot_cfg() -> dict:
+    return (cfg().get("toolchain") or {}).get("godot") or {}
+
+
+def godot_bin() -> str:
+    g = godot_cfg()
+    for k in ("console", "editor"):
+        v = (g.get(k) or "").strip()
+        if v and Path(v).exists():
+            return v
+    print("gddoc: error: no Godot binary configured. Run `gd setup`.",
+          file=sys.stderr)
+    raise SystemExit(2)
+
+
+def engine_version() -> str:
+    """The running build's version string, used to key the cache.
+
+    Read from the binary rather than from config, because config can be stale
+    after an engine upgrade - and a stale API index is exactly the failure this
+    whole tool exists to prevent.
+    """
+    try:
+        r = subprocess.run([godot_bin(), "--headless", "--version"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=120)
+        line = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+        if line:
+            return line[-1].strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return (godot_cfg().get("version") or "unknown").strip()
+
+
+def index_path() -> Path:
+    """One index per engine build, so two engines cannot serve each other."""
+    tag = re.sub(r"[^A-Za-z0-9._-]+", "-", engine_version())[:64] or "unknown"
+    return CACHE / ("godot-api-%s.json" % tag)
 
 
 def godot_source() -> Path:
-    p = Path(cfg()["toolchain"]["godot"]["source_root"])
-    if not (p / "doc" / "classes").is_dir():
-        print("gddoc: error: no doc/classes under " + str(p), file=sys.stderr)
-        raise SystemExit(2)
-    return p
+    """A directory containing doc/classes, from a checkout or from --doctool.
+
+    The generated case is what makes this system usable by anyone who installed
+    Godot from a release download: `godot --doctool <dir>` writes exactly the
+    `doc/classes` + `modules/*/doc_classes` layout a source tree has, taken from
+    the binary's own compiled-in reference.
+    """
+    declared = (godot_cfg().get("source_root") or "").strip()
+    if declared:
+        p = Path(declared)
+        if (p / "doc" / "classes").is_dir():
+            return p
+    gen = CACHE / ("doctool-" + re.sub(r"[^A-Za-z0-9._-]+", "-",
+                                       engine_version())[:64])
+    if (gen / "doc" / "classes").is_dir() and any((gen / "doc" / "classes").glob("*.xml")):
+        return gen
+    gen.mkdir(parents=True, exist_ok=True)
+    print("gddoc: generating the class reference from the engine binary "
+          "(--doctool), one time for this build...", file=sys.stderr)
+    r = subprocess.run([godot_bin(), "--headless", "--doctool", str(gen)],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=1800)
+    if (gen / "doc" / "classes").is_dir() and any((gen / "doc" / "classes").glob("*.xml")):
+        return gen
+    print("gddoc: error: could not obtain the class reference.\n"
+          "  Neither toolchain.godot.source_root nor `--doctool` produced\n"
+          "  doc/classes XML. Tried: " + str(gen) + "\n"
+          + ((r.stdout or "") + (r.stderr or ""))[-800:], file=sys.stderr)
+    raise SystemExit(2)
 
 
 def emit(verb: str, payload: dict) -> None:
@@ -102,12 +206,13 @@ def xml_paths(src: Path):
 
 
 def cmd_index(a) -> int:
-    src = godot_source()
+    INDEX = index_path()
     if INDEX.exists() and not a.force:
         idx = json.loads(INDEX.read_text(encoding="utf-8"))
         emit("index", {"ok": True, "cached": True, "classes": len(idx["classes"]),
                        "generated": idx.get("generated"), "path": str(INDEX)})
         return 0
+    src = godot_source()
     CACHE.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     classes: dict = {}
@@ -151,12 +256,16 @@ def cmd_index(a) -> int:
             "operators": ops,
         }
     idx = {
-        "godot_version": cfg()["toolchain"]["godot"]["version"],
+        "godot_version": engine_version(),
         "source_root": str(src),
         "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "classes": classes,
     }
-    INDEX.write_text(json.dumps(idx), encoding="utf-8")
+    # Atomic: two projects may index concurrently on a shared machine, and a
+    # half-written index reads as a corrupt install rather than as a race.
+    tmp = INDEX.with_name(INDEX.name + ".tmp-%d" % os.getpid())
+    tmp.write_text(json.dumps(idx), encoding="utf-8")
+    os.replace(str(tmp), str(INDEX))
     emit("index", {"ok": not failed, "cached": False, "classes": len(classes),
                    "methods": sum(len(c["methods"]) for c in classes.values()),
                    "seconds": round(time.time() - t0, 2),
@@ -166,6 +275,7 @@ def cmd_index(a) -> int:
 
 
 def load_index() -> dict:
+    INDEX = index_path()
     if not INDEX.exists():
         cmd_index(argparse.Namespace(force=False))
     return json.loads(INDEX.read_text(encoding="utf-8"))
@@ -362,7 +472,7 @@ def cmd_stats(a) -> int:
                    "properties": sum(len(x["properties"]) for x in c.values()),
                    "signals": sum(len(x["signals"]) for x in c.values()),
                    "constants": sum(len(x["constants"]) for x in c.values()),
-                   "generated": idx["generated"], "index": str(INDEX)})
+                   "generated": idx["generated"], "index": str(index_path())})
     return 0
 
 

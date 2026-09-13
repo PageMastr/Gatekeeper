@@ -9,6 +9,20 @@ Read `CLAUDE.md` and `gsd-gd/references/laws.md`, then answer the user's
 question directly. If they asked nothing specific, give them this — and if they
 are new to the system, point them at `QUICKSTART.md` first:
 
+## Once per machine
+
+```bash
+gd setup                     find Godot and Blender and record them. Writes
+                             ~/.claude/gsd-gd.machine.json, which no upgrade
+                             touches. `gd setup --show` prints what it found.
+gd doctor                    prove the whole chain, and print which directory
+                             this game will live in
+```
+
+Nothing in the system hardcodes an engine path. `gd config` shows all three
+layers — shipped defaults, this machine's toolchain, this game's overrides — and
+which one each value came from.
+
 ## Start here
 
 ```
@@ -17,6 +31,9 @@ are new to the system, point them at `QUICKSTART.md` first:
 /gd:run                      builds until the phase gate is green, or until it
                              hits a one-way door and needs your decision
 ```
+
+`.planning/` and `game/` are created in the directory you are working in, so one
+install drives as many separate games as you like without them touching.
 
 After the first phase, the loop is two commands:
 
@@ -32,12 +49,18 @@ Everything else is for steering a specific part by hand.
 ```
  frame  ->  plan  ->  greybox  ->  build  ->  gauntlet  ->  playtest  ->  ship
    \_________/          |            |           |            |             |
-   /gd:plan at       loop proven   parallel   candidates+   measure+look   gates,
-   kickoff does      in grey,      waves,     independent   +budget        licences,
-   both, + roadmap   incl. losing  fresh ctx  critic, loops +human         learnings
+   /gd:plan at       THE WHOLE     parallel   candidates+   measure+look   gates,
+   kickoff does      GAME in grey, waves,     independent   +budget        licences,
+   both, + roadmap   over N stages fresh ctx  critic, loops +human         learnings
                           \____________/____________/
                             /gd:run drives these autonomously
 ```
+
+**The greybox is a block of stages, not one phase.** Its job is the entire game
+in grey — every space at real distances, every system running, the loop closing,
+a way to lose — and that is usually more than one phase holds. The roadmap sizes
+the block to the game: one stage for something small, six for something large.
+Art is refused by `gd run init` until the last one clears and you have played it.
 
 | command | when |
 |---|---|

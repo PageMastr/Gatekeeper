@@ -70,8 +70,9 @@ re-validates — and this is where it earns its keep, because what you just
 learned is allowed to change the plan:
 
 - a stage that turned out to be two stages → split it
-- a stage that is no longer needed → delete it, and move its coverage rows to
-  **Not in this milestone** with a reason
+- a stage that turned out to belong later → move it to **Later stages** *with
+  the stage number it will get*. It is rescheduled, not cut (Law 13b); a stage
+  genuinely deleted takes its coverage rows with it and says why
 - an order that was wrong → reorder, keeping `depends on` pointing backwards
 - a placeholder you introduced this phase → add it to the ledger **now**, with
   the stage that will replace it
@@ -135,7 +136,7 @@ git tag "phase-NN-<slug>"
 ## 8. Optional: a build
 
 Only if the user asks. This is a Godot **source build**, so the export templates
-are the ones in `D:/Godot/GodotEngine/bin/` (Windows x86_64 and Web wasm32) —
+are the ones beside the configured engine binary (`gd config` prints its path) —
 `export_presets.cfg` must point at those paths, not at downloaded templates.
 See `gsd-gd/references/toolchain.md`.
 

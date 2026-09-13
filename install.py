@@ -2,18 +2,28 @@
 """Install GSD-GameDev at user scope, so /gd:* works in any Claude Code session.
 
     python install.py              # copy into ~/.claude
-    python install.py --link       # junction gsd-gd/ instead of copying it
+    python install.py --link       # junction/symlink gsd-gd/ instead of copying
     python install.py --dry-run    # show what would happen, change nothing
+    python install.py --no-setup   # skip the toolchain wizard
     python install.py --uninstall  # remove it again
 
-What it does, and why each step is needed:
+What it installs:
 
   ~/.claude/gsd-gd/          the system itself - config, templates, lib, harness,
-                             bin/gd.py, bin/gddoc.py, references, cache
-  ~/.claude/commands/gd/     the 17 slash commands
-  ~/.claude/agents/          the 10 agents
+                             bin/gd.py, bin/gddoc.py, references
+  ~/.claude/commands/gd/     the slash commands
+  ~/.claude/agents/          the gd-* agents
   ~/.claude/skills/          the godot-api skill
   ~/.claude/settings.json    permissions merged in, never overwritten
+
+What it deliberately does NOT touch:
+
+  ~/.claude/gsd-gd.machine.json   this machine's Godot and Blender paths
+  ~/.claude/gsd-gd-cache/         the generated API index
+
+Both live outside the payload precisely so that upgrading is safe. An install
+that silently unsets the user's engine path is indistinguishable from a broken
+release, and re-indexing 1000 classes on every upgrade is pure waste.
 
 Commands and agents are *rewritten* on the way in: every `python gsd-gd/bin/...`
 becomes an absolute path, and every `@gsd-gd/references/...` include becomes an
@@ -36,11 +46,15 @@ SRC = Path(__file__).resolve().parent
 HOME_CLAUDE = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
 
 SYS_NAME = "gsd-gd"
+MACHINE_CONFIG = HOME_CLAUDE / "gsd-gd.machine.json"
 PAYLOAD = [
     ("commands/gd", SRC / ".claude" / "commands" / "gd"),
     ("agents", SRC / ".claude" / "agents"),
     ("skills/godot-api", SRC / ".claude" / "skills" / "godot-api"),
 ]
+# Only the two entry points. The engine binaries are launched by gd.py as
+# subprocesses, so there is nothing machine-specific to allow here - which is
+# what lets one settings.json work on every machine.
 PERMS = [
     "Bash(python ~/.claude/gsd-gd/bin/gd.py:*)",
     "Bash(python ~/.claude/gsd-gd/bin/gddoc.py:*)",
@@ -137,6 +151,30 @@ def merge_settings(sys_dir: Path, dry: bool) -> list:
     return notes
 
 
+def toolchain_configured() -> bool:
+    """True if `gd setup` has already run and named a Godot binary that exists."""
+    if not MACHINE_CONFIG.exists():
+        return False
+    try:
+        c = json.loads(MACHINE_CONFIG.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    g = ((c.get("toolchain") or {}).get("godot") or {})
+    b = ((c.get("toolchain") or {}).get("blender") or {})
+    return bool(g.get("console") or g.get("editor")) and bool(b.get("exe"))
+
+
+def run_setup(sys_dir: Path) -> bool:
+    """Hand off to the wizard, which owns detection and the machine config.
+
+    Deliberately a subprocess call rather than duplicated logic: detection rules
+    change as people report where their engines live, and two copies of them
+    would diverge immediately.
+    """
+    r = subprocess.run([sys.executable, str(sys_dir / "bin" / "gd.py"), "setup"])
+    return r.returncode == 0
+
+
 def install(a) -> int:
     sys_dir = HOME_CLAUDE / SYS_NAME
     print("\nGSD-GameDev -> " + str(HOME_CLAUDE))
@@ -146,6 +184,10 @@ def install(a) -> int:
 
     if not (SRC / SYS_NAME / "config.json").exists():
         print("install.py must be run from the GSD-GameDev repo root", file=sys.stderr)
+        return 2
+    if sys.version_info < (3, 10):
+        print("Python 3.10 or newer is required (found %s)"
+              % sys.version.split()[0], file=sys.stderr)
         return 2
 
     say("system:   " + copy_system(sys_dir, a.link, a.dry_run) + " -> " + str(sys_dir))
@@ -173,19 +215,36 @@ def install(a) -> int:
     for note in merge_settings(sys_dir, a.dry_run):
         say("settings: " + note)
 
-    if not a.dry_run:
-        idx = subprocess.run([sys.executable, str(sys_dir / "bin" / "gddoc.py"), "index"],
-                             capture_output=True, text=True)
-        m = re.search(r'"classes":\s*(\d+)', idx.stdout or "")
-        say("api index: " + (m.group(1) + " classes" if m
-                             else "FAILED - run gddoc.py index by hand"))
-        d = subprocess.run([sys.executable, str(sys_dir / "bin" / "gd.py"), "doctor"],
-                           capture_output=True, text=True)
-        say("doctor:   " + ("all checks pass" if '"ok": true' in (d.stdout or "")
-                            else "FAILED - see below"))
-        if '"ok": true' not in (d.stdout or ""):
-            print(d.stdout[-1500:])
-            print(d.stderr[-500:], file=sys.stderr)
+    if a.dry_run:
+        say("toolchain: would run `gd setup` if %s is absent" % MACHINE_CONFIG.name)
+        return 0
+
+    # The machine config is never written by the installer and never deleted by
+    # it. It is only *created*, by the wizard, and only when it is not there.
+    if toolchain_configured():
+        say("toolchain: already configured in %s (left untouched)" % MACHINE_CONFIG)
+    elif a.no_setup:
+        say("toolchain: not configured - run `gd setup` before using the system")
+    else:
+        print("")
+        print("  The toolchain has not been configured on this machine yet.")
+        print("  Running the setup wizard - it looks for Godot and Blender and")
+        print("  asks only for what it cannot find.")
+        if not run_setup(sys_dir):
+            print("")
+            print("  Setup did not complete. Run it again when the engines are")
+            print("  installed:  python %s setup" % (sys_dir / "bin" / "gd.py"))
+            print("  Everything else is installed and will work once it does.")
+            return 1
+
+    d = subprocess.run([sys.executable, str(sys_dir / "bin" / "gd.py"), "doctor"],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    say("doctor:   " + ("all checks pass" if '"ok": true' in (d.stdout or "")
+                        else "FAILED - see below"))
+    if '"ok": true' not in (d.stdout or ""):
+        print((d.stdout or "")[-1800:])
+        print((d.stderr or "")[-500:], file=sys.stderr)
 
     print("""
 Done. In any Claude Code session, from any directory:
@@ -194,11 +253,20 @@ Done. In any Claude Code session, from any directory:
     /gd:run
 
 `.planning/` and `game/` are created in whatever directory you are working in,
-not in the install - so each game keeps its own contracts. `gd doctor` prints
-the resolved `system` and `work` roots if you are ever unsure which is which.
+not in the install - so each game keeps its own contracts, and nothing one game
+sets can reach another. `gd doctor` prints the resolved system and work roots if
+you are ever unsure which is which.
+
+Three config layers, lowest first:
+  1. %s
+     shipped defaults - replaced on every upgrade, no paths, no game data
+  2. %s
+     this machine's toolchain - written by `gd setup`, never touched by install
+  3. <your game>/.planning/config.json
+     that game's numbers - budget, playtest defaults, model routing
 
 To pin the workspace explicitly, set GD_PROJECT to its path.
-""")
+""" % (sys_dir / "config.json", MACHINE_CONFIG))
     return 0
 
 
@@ -223,6 +291,21 @@ def uninstall(a) -> int:
                 f.unlink()
             n += 1
     say(("would remove " if a.dry_run else "removed ") + "%d gd-* agent file(s)" % n)
+    # Detection took real effort and the cache took real time. Removing the
+    # system should not punish a reinstall, and neither file is harmful if the
+    # system never comes back.
+    if a.purge:
+        for t in (MACHINE_CONFIG, HOME_CLAUDE / "gsd-gd-cache"):
+            if t.exists():
+                if not a.dry_run:
+                    try:
+                        t.unlink()
+                    except OSError:
+                        shutil.rmtree(t, ignore_errors=True)
+                say(("would remove " if a.dry_run else "removed ") + str(t))
+    else:
+        say("kept %s and the API cache (--purge removes them too)"
+            % MACHINE_CONFIG.name)
     say("settings.json permissions left in place (harmless); a backup may exist "
         "as settings.json.gd-backup")
     print("")
@@ -234,7 +317,11 @@ def main() -> int:
     ap.add_argument("--link", action="store_true",
                     help="junction/symlink gsd-gd instead of copying, so repo edits take effect live")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-setup", action="store_true",
+                    help="do not run the toolchain wizard")
     ap.add_argument("--uninstall", action="store_true")
+    ap.add_argument("--purge", action="store_true",
+                    help="with --uninstall: also remove the machine config and API cache")
     a = ap.parse_args()
     return uninstall(a) if a.uninstall else install(a)
 

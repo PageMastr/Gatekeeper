@@ -50,7 +50,8 @@ one place it is hardest to notice. Taste goes in, source code comes out —
 which is the point. A human can see; a human cannot remember numbers.
 
 ```bash
-"D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe" --path game/<slug>
+# the binary comes from the machine config; `gd config` prints it
+python gsd-gd/bin/gd.py godot script res://lab/light_panel.gd   # or open the editor by hand
 ```
 
 ## Presets that ship by default

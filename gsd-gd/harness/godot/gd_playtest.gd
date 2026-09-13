@@ -351,35 +351,45 @@ func _evaluate_checks() -> void:
 				var key := str(c.get("probe", ""))
 				var want := float(c.get("min", 1.0))
 				if probe_numeric.get(key, false):
-					checks.append({"name": check_name, "ok": false, "kind": kind,
-							"detail": ("probe '%s' is numeric, not a position - `moved` "
-									+ "measures path length. Use probe_min/probe_max/"
-									+ "probe_at.") % key})
-					continue
-				var travelled := float(probe_path_len.get(key, 0.0))
-				var straight := 0.0
-				if typeof(probe_first.get(key)) == TYPE_VECTOR3 and typeof(probe_last.get(key)) == TYPE_VECTOR3:
-					straight = (probe_last[key] as Vector3).distance_to(probe_first[key])
-				var ratio := straight / maxf(travelled, 0.0001)
-				ok = travelled >= want
-				detail = "path=%.3f straight=%.3f directness=%.2f need>=%.3f" % [
-						travelled, straight, ratio, want]
-				# Distance alone is satisfied by any open floor - a player can
-				# "walk the spine" 41m on a bare greybox with no spine in it.
-				# `via` makes the check assert WHAT was traversed.
-				var via: Array = c.get("via", [])
-				if not via.is_empty():
-					var missed: Array[String] = []
-					for want_node in via:
-						if not probe_visited.get(key, {}).has(str(want_node)):
-							missed.append(str(want_node))
-					if not missed.is_empty():
-						ok = false
-						detail += "; never entered: %s" % ", ".join(missed)
-					else:
-						detail += "; via %d node(s) ok" % via.size()
-				elif ok and ratio < 0.35:
-					detail += " (WARNING: wandering, not traversing - consider `via`)"
+					# Set-and-fall-through, never append-and-continue.
+					#
+					# `continue` here skipped BOTH the `checks[_slot] = ...` write
+					# at the bottom of the loop and the `_slot += 1` beside it, so
+					# every later check was written one slot early and the last
+					# pre-seeded row survived, still reading "NOT EVALUATED -
+					# evaluation stopped before reaching this check". The verdict
+					# then reported the final check twice, once passing and once
+					# claiming evaluation had aborted. Observed: a three-check plan
+					# returning four rows, two named `third_check`, disagreeing.
+					ok = false
+					detail = ("probe '%s' is numeric, not a position - `moved` "
+							+ "measures path length. Use probe_min/probe_max/"
+							+ "probe_at.") % key
+				else:
+					var travelled := float(probe_path_len.get(key, 0.0))
+					var straight := 0.0
+					if typeof(probe_first.get(key)) == TYPE_VECTOR3 and typeof(probe_last.get(key)) == TYPE_VECTOR3:
+						straight = (probe_last[key] as Vector3).distance_to(probe_first[key])
+					var ratio := straight / maxf(travelled, 0.0001)
+					ok = travelled >= want
+					detail = "path=%.3f straight=%.3f directness=%.2f need>=%.3f" % [
+							travelled, straight, ratio, want]
+					# Distance alone is satisfied by any open floor - a player can
+					# "walk the spine" 41m on a bare greybox with no spine in it.
+					# `via` makes the check assert WHAT was traversed.
+					var via: Array = c.get("via", [])
+					if not via.is_empty():
+						var missed: Array[String] = []
+						for want_node in via:
+							if not probe_visited.get(key, {}).has(str(want_node)):
+								missed.append(str(want_node))
+						if not missed.is_empty():
+							ok = false
+							detail += "; never entered: %s" % ", ".join(missed)
+						else:
+							detail += "; via %d node(s) ok" % via.size()
+					elif ok and ratio < 0.35:
+						detail += " (WARNING: wandering, not traversing - consider `via`)"
 			"still":
 				var key2 := str(c.get("probe", ""))
 				var tol := float(c.get("max", 0.05))

@@ -1,11 +1,16 @@
+# Generated output
 .gd_out/
 game/*/.godot/
 game/*/.gd_out/
-gsd-gd/cache/
 __pycache__/
 *.pyc
-.claude/scheduled_tasks.lock
 
-# test scaffolding, not part of the system
+# Claude Code local state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# A game built with this system lives in its own directory, never in the
+# system's repo. `gd init` refuses to scaffold here without --force; these
+# entries exist so an accidental --force does not get committed.
 game/
 .planning/

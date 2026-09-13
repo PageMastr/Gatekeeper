@@ -1,7 +1,10 @@
 # GSD-GameDev
 
-A spec-driven, context-engineered system for building games with **Godot 4.7**
-and **Blender 5.1**, using Claude Code.
+A spec-driven, context-engineered system for building games with **Godot** and
+**Blender**, using Claude Code.
+
+Install it once, use it in every project. Nothing is hardcoded: `gd setup` finds
+your engines wherever they live, on Windows, macOS or Linux.
 
 It takes the structural idea from [GSD Core](https://github.com/open-gsd/gsd-core)
 — persistent contracts, one-job-one-fresh-context, a gate before you move on —
@@ -35,8 +38,9 @@ specifically to catch those:
    │                   │                     └─ candidates + an independent
    │                   │                        judge + numeric vetoes,
    │                   │                        looping until it is good
-   │                   └─ ONE WHOLE TURN of the loop, playable in grey,
-   │                      including a way to lose — before any art exists
+   │                   └─ the WHOLE GAME playable in grey — every space, every
+   │                      system, the loop closing, a way to lose — across as
+   │                      many stages as it takes, before any art exists
    └─ contracts first: the reference, the Color Bible, the Core Loop, Minute One
 
    \_______________/          \_____________________________________/
@@ -49,7 +53,7 @@ Other deliberate departures from GSD Core:
 | GSD Core | here | why |
 |---|---|---|
 | `STATE.md` + `CONTEXT.md` | those **plus** `COLOR_BIBLE.md`, `CORE_LOOP.md`, `ROADMAP.md`, `BUDGET.md`, `CREDITS.md` | a game's contracts are visual, mechanical, numeric and legal — not just decisions |
-| a phase roadmap | a **validated** stage roadmap with a coverage matrix and a placeholder ledger | "the whole game gets built" has to be a check, not an intention |
+| a phase roadmap | a **validated** stage roadmap: per-stage targets and pass conditions, a systems inventory, a levels table, a coverage matrix, a placeholder ledger | "the whole game gets built" has to be a check, not an intention |
 | tests as the gate | **measure + look + perf**, and a human last | a passing test says nothing about whether a frame reads |
 | reviewer agent | a **critic** that is structurally denied the code | a builder reviewing its own work sees what it intended |
 | no asset pipeline | Blender generators as first-class, gated on measured geometry | assets are most of a game, and most of the risk |
@@ -60,24 +64,60 @@ Other deliberate departures from GSD Core:
 
 ## Install
 
-To use `/gd:*` from **any** Claude Code session, in any directory:
+Requires Python 3.10+, Godot 4.4+, Blender 4.0+ and git. Then, to use `/gd:*`
+from **any** Claude Code session, in any directory:
 
 ```bash
-python install.py             # copy into ~/.claude
+python install.py             # copy into ~/.claude, then run the setup wizard
 python install.py --link      # junction gsd-gd/ instead, so repo edits take effect live
 python install.py --dry-run   # show what it would do
 python install.py --uninstall
+```
+
+The installer ends by running **`gd setup`**, which searches this machine for
+Godot and Blender, verifies each by running it, prefers the Windows `.console`
+build (the plain `.exe` detaches from the terminal and you lose all stdout), and
+asks only for what it could not find. Re-run it any time:
+
+```bash
+gd setup                      # detect and record
+gd setup --show               # what is recorded
+gd setup --godot <path> --blender <path>
 ```
 
 It places:
 
 | | |
 |---|---|
-| `~/.claude/gsd-gd/` | the system — config, templates, lib, harness, `bin/gd.py`, `bin/gddoc.py`, references, cache |
-| `~/.claude/commands/gd/` | the 17 slash commands |
-| `~/.claude/agents/` | the 10 agents |
+| `~/.claude/gsd-gd/` | the system — shipped config, templates, lib, harness, `bin/gd.py`, `bin/gddoc.py`, references |
+| `~/.claude/commands/gd/` | the slash commands |
+| `~/.claude/agents/` | the agents |
 | `~/.claude/skills/godot-api/` | the API-lookup skill |
 | `~/.claude/settings.json` | two permissions **merged in** — your existing settings are preserved and backed up to `settings.json.gd-backup` |
+| `~/.claude/gsd-gd.machine.json` | **your** Godot and Blender paths. Written by `gd setup`, **never touched by install** |
+| `~/.claude/gsd-gd-cache/` | the generated API index, keyed by engine build |
+
+The last two sit *beside* the install rather than inside it, because
+`install.py` replaces the payload wholesale. An upgrade that silently unset your
+engine path would be indistinguishable from a broken release.
+
+### Nothing is hardcoded
+
+Three config layers, lowest precedence first:
+
+| # | file | holds | lifetime |
+|---|---|---|---|
+| 1 | `~/.claude/gsd-gd/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths** | replaced on every upgrade |
+| 2 | `~/.claude/gsd-gd.machine.json` | this machine's Godot and Blender | written by `gd setup` |
+| 3 | `<your game>/.planning/config.json` | that game's numbers | lives in the game's repo |
+
+`gd config` prints all three and which one each value came from.
+`GD_GODOT` / `GD_BLENDER` / `GD_GODOT_SOURCE` override on top, per shell.
+
+**No Godot source checkout required.** `gddoc` builds its API index from the
+engine's own class reference — read from a source tree if you have one, and
+otherwise generated straight from the binary with `godot --doctool`. A release
+download works fine.
 
 Commands and agents are **rewritten on the way in**: every `python gsd-gd/bin/…`
 becomes an absolute path, and every `@gsd-gd/references/…` include becomes an
@@ -93,7 +133,13 @@ and the install stays clean.
 
 `WORK` resolves in this order: `$GD_PROJECT` → the nearest ancestor containing
 `.planning/` → the nearest git root → the cwd. `gd doctor` prints both roots if
-you are ever unsure which is which.
+you are ever unsure which is which, and `gd init` **refuses** to scaffold a game
+inside the installed system or inside this repo — the two placements that would
+leak one game's contracts into every other.
+
+Concurrent projects are safe: the install is read-only at runtime, every state
+write is atomic, and `RUN.json` is locked for the read-modify-write that records
+a job result — so two sessions recording into one phase cannot lose a verdict.
 
 Project scope still wins where it exists, so this repo keeps using its own
 `.claude/` copies — handy for changing the system without disturbing the
@@ -113,9 +159,14 @@ Claude Code, two commands per phase is the whole loop:
 
 Verifies the toolchain, builds the local Godot API index, scaffolds the Godot
 project with a **playable greybox** already in it, proves the scaffold's gates
-pass — then interviews you (reference, loop, tension, one-way doors, lighting,
-scope), writes the contracts and the roadmap, decomposes phase 1 into
-one-session jobs, and arms the driver.
+pass — then interviews you properly: the reference, the loop and its four beats,
+the tension and the failure state, **every system and what it does to the loop**,
+**every space and its size in metres**, the session shape, the one-way doors and
+the lighting condition. Then it writes the contracts and the roadmap, decomposes
+the first stage into one-session jobs, and arms the driver.
+
+It never asks you to cut a feature. If the game is large, the roadmap gets more
+stages — that is what it is for.
 
 ```
 /gd:run
@@ -124,7 +175,8 @@ one-session jobs, and arms the driver.
 Drives the phase: dispatches waves of agents in parallel with fresh contexts,
 grades every gate itself, escalates a failing job up the model ladder, commits
 per job — and **halts at one-way doors and at the phase gate** so you play it
-before any art gets made.
+before any art gets made. It refuses asset work outright until the greybox block
+is finished and a person has played it.
 
 Then `/gd:playtest` for the human pass and `/gd:ship` to close the phase. After
 that the loop is `/gd:plan <next milestone>` then `/gd:run`, and `/gd:next` will
@@ -177,7 +229,11 @@ Doctrine that is only written down gets skipped. These are mechanical:
 
 | rule | enforced by |
 |---|---|
-| no asset work before the loop is proven | `/gd:build` and `/gd:run` refuse while `greybox_passed: no` |
+| no asset work before the whole game is proven in grey | `gd run init` refuses a plan with `gd-modeler` jobs or `gd asset` gates until the greybox block is done **and** `greybox_passed: yes` |
+| the greybox covers the whole game | `gd roadmap` fails unless every system and every space is greyboxed inside the block |
+| the last greybox stage proves you can lose | `gd roadmap` fails if its pass conditions never mention losing |
+| every stage has a target and pass conditions | `gd roadmap` fails a stage with no row in the targets table |
+| a game cannot be scaffolded into the shared install | `gd init` refuses, and `gd doctor` checks the work root |
 | no colour outside the Color Bible | `gdblend.mat()` raises; `Palette.get_color()` asserts; `check_palette()` fails the build |
 | every asset is measured | bootstrap fails a generator that never calls `report()` |
 | kit modules tile | `check_grid()` measures every bound against the 0.25 m snap grid |
@@ -198,10 +254,14 @@ Doctrine that is only written down gets skipped. These are mechanical:
 
 ## The toolchain
 
-| tool | path | notes |
+Discovered per machine by `gd setup`; `gd config` prints what is in force.
+
+| tool | minimum | notes |
 |---|---|---|
-| Godot | `D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe` | 4.7.2-rc, source build. **Always the `.console.exe`** — the plain `.exe` detaches from the terminal on Windows and you get no stdout. |
-| Blender | `D:/Program Files/Blender Foundation/Blender 5.1/blender.exe` | 5.1.2, driven headless with `-b --factory-startup` |
+| Godot | 4.4 | an **editor** build, not an export template. On Windows the `.console.exe` is preferred and auto-detected — the plain `.exe` detaches from the terminal and you get no stdout at all, which presents as a silent hang |
+| Blender | 4.0 | driven headless with `-b --factory-startup`, so user add-ons cannot make one machine's asset differ from another's |
+| Python | 3.10 | the CLI |
+| git | any | one commit per job, so a failing job reverts alone |
 
 Verified end to end:
 
@@ -216,17 +276,18 @@ generator.py ──blender -b──> asset.glb ──godot --import──> .scn 
 ```
 CLAUDE.md                    the constitution, loaded every session
 .claude/
-  commands/gd/*.md           17 slash commands
-  agents/*.md                10 agents, each routed to a model by role
+  commands/gd/*.md           the slash commands
+  agents/*.md                the agents, each routed to a model by role
   skills/godot-api/          the API-lookup discipline
   settings.json              toolchain permissions
 gsd-gd/
-  config.json                toolchain paths + budgets (the only place they live)
-  bin/gd.py                  the CLI: doctor, init, state, phase, palette, models,
-                             run, check, blender, asset, godot, playtest,
-                             credits, harness
-  bin/gddoc.py               local Godot 4.7 reference: class, member, search,
-                             exists, scan, index
+  config.json                shipped defaults — budgets, playtest defaults, model
+                             routing. No paths: those are per machine
+  bin/gd.py                  the CLI: setup, doctor, init, state, phase, palette,
+                             models, roadmap, run, check, blender, asset, godot,
+                             playtest, config, version, credits, harness
+  bin/gddoc.py               local version-exact Godot reference: class, member,
+                             search, exists, scan, index
   lib/gdblend/               Blender library: palette contract, grid/dim checks,
                              measurement, decimate, bevel, Godot-shaped GLB export
   harness/godot/             gd_playtest (measure+look+perf), gd_lighting_rig,
@@ -237,9 +298,11 @@ gsd-gd/
   references/                laws, toolchain, decomposition, godot-patterns,
                              blender-patterns, gdscript-4x, playtest-recipes,
                              model-routing
-  cache/                     the API index (generated)
-.planning/                   the current game's contracts
+.planning/                   the current game's contracts, incl. config.json
 game/<slug>/                 the Godot project
+
+~/.claude/gsd-gd.machine.json    this machine's engine paths (gd setup)
+~/.claude/gsd-gd-cache/          the API index, keyed by engine build
 ```
 
 ---

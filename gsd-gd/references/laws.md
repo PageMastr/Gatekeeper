@@ -1,6 +1,6 @@
 # The Laws
 
-Fourteen rules. Every command and every agent in this system is an attempt to
+Fifteen rules. Every command and every agent in this system is an attempt to
 make one of them unavoidable. They are ordered by how expensive it is to break
 them.
 
@@ -12,10 +12,22 @@ The characteristic failure of AI-built games is not ugliness. It is a folder of
 beautiful rooms with nothing to do in them. Projects die here, not at the art
 stage.
 
-So: `.planning/CORE_LOOP.md` is written before any code, and one complete turn
-of the loop must be playable **on grey boxes** — including a reachable failure
-state — before a single asset is generated. `/gd:build` refuses to start asset
-work while `greybox_passed: no` is in STATE.md.
+So: `.planning/CORE_LOOP.md` is written before any code, and the **whole game**
+must be playable on grey boxes — every space at real distances, every system
+running, the loop closing, and a reachable failure state — before a single asset
+is generated.
+
+That is more than one phase usually holds, so it is a **block** of consecutive
+stages numbered from 01 in `ROADMAP.md`, each ending playable. `gd roadmap`
+checks the block is contiguous from 01, covers every system in the systems
+inventory and every space in the levels table, and that the last stage says
+something about losing.
+
+`greybox_passed: yes` is set only when that last stage clears **and a person has
+played it**. `gd run init` refuses a plan containing asset work until then and
+names which greybox stages are still open — this is enforced by the tool, not
+only by the command docs, because a law that lives in prose is obeyed only when
+the agent reading it happens to be thorough.
 
 ## 2. Never ask for the whole game in one prompt
 
@@ -154,6 +166,27 @@ the creature one leg at a time. Then you can see what it is actually doing.
 
 Locomotion and creature gait get fixed in `lab/`, never in the real level, where
 six other systems are also moving.
+
+## 13b. More game means more stages, never less game
+
+When the plan does not fit the game, **the plan is what changes**.
+
+The default behaviour of a planner under pressure is to propose cuts. It feels
+responsible, it makes the roadmap tidy, and it is almost always wrong: the person
+asking for the game has already decided what the game is. A stage list that
+cannot hold it is a stage list that needs another row.
+
+- A feature that will not fit in a stage gets **its own stage**.
+- A stage whose job list will not fit one plan gets **split into two stages**.
+- Something that genuinely has to wait goes in **Later stages with the stage
+  number it will get** — scheduled, not deleted.
+- "Should we cut X?" is not a question this system asks. "Which stage does X land
+  in?" is.
+
+The only judgement the roadmap makes is **order**, decided by risk and by
+dependency. The exception is a thing that genuinely cannot be built: say so
+specifically, say what it would take, and let the person decide. That is not the
+same as asking them to trim.
 
 ## 14. Log the licence when the asset lands
 

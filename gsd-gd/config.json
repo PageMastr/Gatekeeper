@@ -1,24 +1,28 @@
 {
-  "$schema": "./config.schema.json",
   "system": "gsd-gd",
   "version": "1.0.0",
   "toolchain": {
+    "_doc": "Left blank on purpose. `gd setup` fills these in on the machine config, not here. A path committed here is a path that is wrong for everyone who is not the author.",
     "godot": {
-      "editor": "D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.exe",
-      "console": "D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe",
-      "version": "4.7.2-rc",
-      "source_root": "D:/Godot/GodotEngine",
-      "notes": "Use `console` for every agent-driven invocation: the plain .exe detaches from the terminal on Windows and you lose stdout."
+      "editor": "",
+      "console": "",
+      "version": "",
+      "source_root": "",
+      "notes": "`console` is what every agent-driven invocation uses: on Windows the plain .exe detaches from the terminal and the caller receives no stdout, which reads as a hang. `source_root` is optional - when blank, `gddoc index` has the engine generate its own class reference with --doctool."
     },
     "blender": {
-      "exe": "D:/Program Files/Blender Foundation/Blender 5.1/blender.exe",
-      "version": "5.1.2",
-      "python": "3.13.9"
+      "exe": "",
+      "version": ""
     }
   },
   "models": {
     "_doc": "Starting model per agent, and the escalation ladder `gd run` climbs when a job keeps failing its gate. Route on capability, not on headline per-token price: on a long build, cached-input reads dominate the bill, so a stronger model with cheaper cache reads can finish a phase for less than a weaker one. Reserve the top tier for work where the quality gap is visible to the player.",
-    "ladder": ["haiku", "sonnet", "opus", "fable"],
+    "ladder": [
+      "haiku",
+      "sonnet",
+      "opus",
+      "fable"
+    ],
     "attempts_per_tier": 3,
     "agents": {
       "gd-planner": {
@@ -81,5 +85,11 @@
       "character": 12000,
       "environment_module": 3000
     }
+  },
+  "_doc": "SHIPPED DEFAULTS. Identical on every machine, and overwritten by every upgrade - so nothing machine-specific and nothing game-specific may live here. Toolchain paths are discovered by `gd setup` and written to ~/.claude/gsd-gd.machine.json; per-game numbers go in that game's <project>/.planning/config.json. `gd config` prints all three layers and which one each value came from.",
+  "minimum": {
+    "godot": "4.4",
+    "blender": "4.0",
+    "python": "3.10"
   }
 }

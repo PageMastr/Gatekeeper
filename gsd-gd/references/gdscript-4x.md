@@ -15,8 +15,12 @@ The engine's own XML class reference, from the same source tree the binary was
 built from, so it cannot drift from the running engine:
 
 ```
-D:/Godot/GodotEngine/doc/classes/*.xml            810 core classes
-D:/Godot/GodotEngine/modules/*/doc_classes/*.xml  261 module classes
+<source_root>/doc/classes/*.xml            core classes
+<source_root>/modules/*/doc_classes/*.xml  module classes
+
+With no source checkout the same XML is generated from the binary itself
+(`godot --headless --doctool <dir>`), so the reference is available on every
+install. `gddoc index` does this automatically.
 ```
 
 Indexed into `gsd-gd/cache/godot-api-index.json`: **1071 classes, 10 732
@@ -142,12 +146,13 @@ for `Time`; most window/screen functions left `OS` for `DisplayServer`.
 
 ## When the docs are ambiguous, read the engine
 
-The full C++ source is at `D:/Godot/GodotEngine`. For behaviour the XML does not
+The full C++ source is at `toolchain.godot.source_root`, when this machine has a
+checkout (`gd config` prints it; blank means none). For behaviour the XML does not
 explain, grep the implementation — it is the same tree the binary came from, so
 it is authoritative:
 
 ```bash
-grep -rn "move_and_slide" D:/Godot/GodotEngine/scene/3d/physics/character_body_3d.cpp
+grep -rn "move_and_slide" "$SOURCE_ROOT/scene/3d/physics/character_body_3d.cpp"
 ```
 
 This build is `4.7.2-rc custom_build c5198ffd3`. It is a release candidate, so

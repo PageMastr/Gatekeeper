@@ -25,8 +25,15 @@ Machine-readable. `gd run` treats these as the phase's definition of done and
 re-runs them after every wave; `/gd:run` halts here for you to play it. Every
 line must be a command that exits non-zero on failure.
 
-- gate: python gsd-gd/bin/gd.py check
-- gate: python gsd-gd/bin/gd.py playtest <plan>
+- gate: gd check
+- gate: gd playtest <plan>
+
+Write gate lines in the short `gd ...` / `gddoc ...` form. `gd run gate`
+resolves them against whichever install is running, so this file stays portable:
+a repo-relative `python gsd-gd/bin/gd.py ...` only works inside the system's own
+checkout, and a baked absolute path breaks the moment the project or the install
+moves machines. Anything that is not a `gd` command runs as written, so a
+project's own test runner is fine.
 
 ## Jobs
 

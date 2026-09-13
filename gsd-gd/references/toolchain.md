@@ -1,104 +1,136 @@
 # Toolchain
 
-Verified on this machine, 2026-09-12. Paths live in `gsd-gd/config.json`; never
-hardcode them anywhere else.
+Nothing in this system hardcodes a path to Godot or Blender. They are discovered
+once per machine and recorded outside the install, so the same checkout works on
+anyone's disk.
 
-| tool | path | version |
+## Where the paths live
+
+```bash
+gd setup            # detect Godot and Blender, write the machine config
+gd setup --show     # what is recorded
+gd config           # all three layers, and which one each value came from
+gd doctor           # prove the whole chain end to end
+```
+
+Three layers, lowest precedence first:
+
+| # | file | holds | lifetime |
+|---|---|---|---|
+| 1 | `<install>/gsd-gd/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths.** | replaced on every upgrade |
+| 2 | `~/.claude/gsd-gd.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by `install.py` |
+| 3 | `<game>/.planning/config.json` | that game's numbers | lives in the game's own repo |
+
+Then `GD_GODOT`, `GD_BLENDER` and `GD_GODOT_SOURCE` on top, as a per-shell
+escape hatch for testing against a second engine build.
+
+A path committed to layer 1 is a path that is wrong for everyone who is not the
+author, which is why the wizard writes to layer 2 instead. Layer 2 sits beside
+the install rather than inside it because `install.py` replaces the payload
+wholesale — an upgrade that silently unsets the engine path is indistinguishable
+from a broken release.
+
+## Requirements
+
+| tool | minimum | why |
 |---|---|---|
-| Godot editor | `D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.exe` | 4.7.2-rc (custom build c5198ffd3) |
-| Godot console | `D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe` | same binary, console subsystem |
-| Godot source | `D:/Godot/GodotEngine` | for reading engine source when docs are ambiguous |
-| Blender | `D:/Program Files/Blender Foundation/Blender 5.1/blender.exe` | 5.1.2, bundled Python 3.13.9 |
-| Python | system | 3.14.4 |
-| git | system | 2.55.0 |
+| Godot | 4.4 | `--check-only`, `--doctool`, `--quit-after` and the typed GDScript analyser |
+| Blender | 4.0 | bundled Python, headless `-b --python`, GLTF exporter |
+| Python | 3.10 | the CLI |
+| git | any | one commit per job, so a failing job reverts alone |
 
-## Rule 1: always use the `.console.exe` on Windows
+## Always the console build, on Windows
 
-The plain `godot.windows.editor.x86_64.exe` is a *windowed-subsystem* binary. It
-detaches from the terminal, so an agent invoking it gets **no stdout at all** and
-sits there waiting. Every invocation from this system goes through the
-`.console.exe`. `gd doctor` checks for it.
+`gd setup` prefers a `*.console.exe` when one sits beside the binary it found,
+and `gd doctor` reports which is in use.
 
-## Rule 2: this is a source build, so there are no export templates
+The plain Windows executable is built for the GUI subsystem: it detaches from
+the terminal, so a caller gets an immediate return and **no stdout at all**.
+Every parse error, every `SCRIPT ERROR`, every verdict line vanishes, and the
+failure presents as a silent hang rather than as a misconfiguration. It is the
+single most confusing thing this system can do to a new user.
 
-`D:/Godot/GodotEngine/bin` contains editor binaries plus the debug/release
-templates that were built alongside (Windows x86_64 and Web wasm32). Exporting
-is therefore possible, but only to those platforms, and `export_presets.cfg`
-must point at the template paths in `bin/` rather than at downloaded templates.
+Use an **editor** build, not an export template. A template cannot run
+`--check-only`, `--doctool` or the import pass, so `gd setup` ranks templates
+last even when they are in the same folder.
 
-## Godot invocations
+## The API reference does not need a source checkout
 
-Everything below is wrapped by `gd`; these are the underlying commands for when
-you need to do something the CLI does not cover.
+`gddoc` builds its index from the engine's own XML class reference. It gets it
+one of two ways:
 
-```bash
-G="D:/Godot/GodotEngine/bin/godot.windows.editor.x86_64.console.exe"
+1. from `<source_root>/doc/classes/` and `<source_root>/modules/*/doc_classes/`,
+   if `toolchain.godot.source_root` names a checkout; or
+2. from `godot --headless --doctool <dir>`, which makes the binary dump the
+   reference it was compiled with.
 
-# Reimport assets after a generator has written a new .glb. Required - Godot
-# will not see the file otherwise.
-"$G" --headless --path <proj> --import
+The second is the normal case: a Godot release download ships no C++ and no doc
+XML. Either way the reference comes from the same build as the running engine,
+which is the whole point — a stale API index is exactly the failure `gddoc`
+exists to prevent.
 
-# Run a SceneTree script with no rendering (fast; good for data/logic probes).
-"$G" --headless --path <proj> --script res://tools/probe.gd
-
-# Run a scene for real, off-screen. THIS is what the LOOK pass needs: --headless
-# uses the dummy renderer and cannot produce a screenshot.
-"$G" --path <proj> --resolution 1280x720 --position 9000,9000 \
-     --quit-after 4800 res://addons/gd_harness/gd_playtest.tscn -- --plan=...
-```
-
-**`--headless` cannot screenshot.** The dummy rendering driver has no framebuffer
-to read back. To capture frames you must run a real window; `--position 9000,9000`
-puts it off the visible desktop, which works and still renders (verified: Vulkan
-1.4.341, RTX 3050).
-
-**Always pass `--quit-after`.** If the harness script fails to parse, no GDScript
-runs, nothing calls `quit()`, and the process hangs until something kills it.
-`gd playtest` always sets it.
-
-## Blender invocations
+The index is cached at `~/.claude/gsd-gd-cache/godot-api-<version>.json`, keyed
+by engine build so two engines on one machine cannot serve each other's API. It
+is written outside the install because the install is shared by every project
+and, with `install.py --link`, is a live git checkout.
 
 ```bash
-B="D:/Program Files/Blender Foundation/Blender 5.1/blender.exe"
-
-# Always -b (background) and --factory-startup (no user prefs, no addons, so the
-# result is the same on every machine).
-"$B" -b --factory-startup --python <script.py> -- <args...>
+gddoc index --force     # rebuild after an engine upgrade
+gddoc stats             # what the index holds
 ```
 
-`gd blender` / `gd asset` wrap this and add `gdblend` to `sys.path` via
-`gsd-gd/harness/blender/bootstrap.py`, which also guarantees that a generator
-which crashes or forgets to report still emits one machine-readable line.
+## Invoking the tools
 
-## Verified pipeline
+Everything goes through `gd`. Agents should never construct an engine command
+line themselves — the flags below are recorded so the behaviour is explainable,
+not so they get typed.
 
-This end-to-end path is tested and working:
-
+```bash
+gd godot import                  # headless import / reimport
+gd check [files]                 # --check-only per script + Godot-3-ism scan
+gd playtest <plan>               # windowed offscreen, scripted, screenshots
+gd blender <script.py>           # -b --factory-startup --python, gdblend on path
+gd asset <generator.py>          # generator -> GLB -> project -> reimport
 ```
-generator.py  --(blender -b)-->  asset.glb  --(godot --import)-->  .scn  --(gd playtest)-->  verdict.json + shots/*.png
-```
 
-## Engine gotchas found the hard way on this build
+### Engine flags that matter, and why
 
-- **Never hand-write a `uid://...`** in a `.tscn`. An invalid UID crashes the
-  headless importer. Omit the `uid=` attribute and let Godot assign one.
-- **A property setter must not be re-entered.** `apply_preset()` assigning
-  `preset`, whose setter calls `apply_preset()`, is unbounded recursion. It
-  hard-crashes the process with `0xC0000005` / `CrashHandlerException` and **no
-  GDScript stack trace** — so it looks like an engine bug. If you see an access
-  violation with no script error, look for a setter that calls itself.
-- **Avoid `@tool` on anything that mutates rendering state in `_ready()`.** It
-  runs during `--import`, in a process with no real renderer, on every asset
-  reimport. Editor preview is not worth a pipeline that crashes.
-- **Type inference through `Array.duplicate()` fails.** `var s := arr.duplicate()`
-  gives an untyped Array, and `var x := s[0]` is then a parse error
-  ("cannot infer the type"). Annotate: `var s: Array[float] = arr.duplicate()`.
-- **Do not name a local `name` in a Node subclass.** It shadows `Node.name`.
-- **`Input.parse_input_event()` is deferred** — the state is not visible on the
-  same frame. For synthetic input use `Input.action_press()` /
-  `action_release()`, which apply immediately. This is why playtest plans press
-  *actions*, never keycodes.
-- **With vsync off, a frame count is not a duration.** The process runs at
-  ~1500 fps, so 120 frames is 80 ms of game time and every movement assertion
-  fails for reasons unrelated to the game. The harness pins steps to 60 fps
-  (`STEP_FPS`) and only lifts the cap for the perf window.
+| flag | why |
+|---|---|
+| `--headless` | no window, no renderer. Measurement only — the dummy renderer **cannot screenshot**, which is why `gd playtest` is windowed by default |
+| `--position 9000,9000` | renders for real but off the visible desktop, so a playtest does not steal focus |
+| `--quit-after N` | engine-level backstop. If the harness script fails to parse, no GDScript runs at all and the window would sit open forever |
+| `--check-only --script res://x.gd` | the analyser. Ground truth for types and identifiers — but its **exit code is 0 even on a parse error**, so the output must be read, not the return value |
+| `--import` | rebuilds the global class cache. Without it a cross-file `class_name` reads as "identifier not declared" on perfectly correct code |
+| `--doctool <dir>` | dumps the compiled-in class reference as XML |
+
+### Blender
+
+`gd blender` runs `-b --factory-startup --python <bootstrap> -- <script>` with
+`gdblend` on the path and the **effective project config** in the environment,
+so a generator's snap grid and triangle budgets come from that game rather than
+from a machine default.
+
+`--factory-startup` is not optional: user add-ons and preferences would make one
+machine's output differ from another's, and an asset that only builds on one
+person's Blender is not a build artifact.
+
+## Gotchas worth remembering
+
+- **`--check-only` returns before autoloads register.** A reference to an
+  autoload singleton reports "identifier not found" on code that is correct at
+  runtime. `gd check` reads `project.godot` and forgives declared autoload names
+  — real unknown types are still caught, because the global class cache *is*
+  loaded in that mode. One project had already bent its architecture into a
+  static-accessor workaround before this was found.
+- **The global class cache goes stale silently.** Any `.gd` newer than
+  `.godot/global_script_class_cache.cfg` is absent from it, producing "could not
+  find type X" on a type that exists. `gd check` and `gd playtest` reimport when
+  they detect it.
+- **Never hand-write a `uid://` in a `.tscn`.** An invalid UID crashes the
+  importer.
+- **Never name a local variable `name` in a `Node` subclass.** It shadows the
+  property and the error is reported far from the cause.
+- **A `.tscn` handed to `--check-only --script` reports no error**, because it is
+  not a script. `gd check` extracts scene-embedded GDScript and checks that
+  separately; a scene that silently "passes" is a false pass.

@@ -18,9 +18,18 @@ python gsd-gd/bin/gd.py state
 python gsd-gd/bin/gd.py phase current
 ```
 
-- `greybox_passed` must be `yes`. If it is not, stop and run `/gd:greybox`.
-  Do not "just do a bit of art first" — that is precisely the failure Law 1
-  exists to prevent, and it always looks reasonable at the time.
+```bash
+python gsd-gd/bin/gd.py roadmap status
+```
+
+- **Asset work needs `greybox_passed: yes`.** `gd run init` refuses a plan
+  containing `gd-modeler` jobs or `gd asset` gates before that, and names which
+  greybox stages are still open, so this is checked rather than remembered. Do
+  not "just do a bit of art first" — that is precisely the failure Law 1 exists
+  to prevent, and it always looks reasonable at the time.
+- **Non-asset stages inside the greybox block are fine to run** with
+  `greybox_passed: no`. That is what the block is for: stages 01..N each build
+  and prove part of the game in grey, and only the last one flips the flag.
 - A current phase with a `PLAN.md` and job files must exist. If not, `/gd:plan`.
 
 ## Your role

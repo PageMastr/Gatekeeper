@@ -77,8 +77,17 @@ The part projects die without. Answer, concretely:
   the loop returns to identical starting conditions it is a treadmill.
 - **Tension:** what gets worse while the player does nothing; what they can do
   about it; the tradeoff that makes two players play differently.
-- **Scope fence:** what is explicitly *not* in the first milestone. Name it now
-  so it can be defended later, when it looks cheap mid-build.
+- **The failure state:** how the player loses, what warns them first, and what
+  happens on loss. Half of every loop, and the half almost every first pass
+  forgets.
+- **Partial input:** every interaction needing more than one press, and what
+  pressing only the first part must *not* do. A plan presses exactly the keys it
+  lists, so this is the only place the half-pressed player gets modelled.
+
+Do **not** write a scope fence here. Nothing is cut to make the plan fit — what
+is not being built *now* gets a stage number in the roadmap's **Later stages**
+(Law 13b). A list of things the game will never have belongs to the person whose
+game it is, not to this file.
 
 Do not accept a loop you cannot describe in one sentence. If it takes a
 paragraph, it is several loops and none of them is built yet.
@@ -114,5 +123,5 @@ python gsd-gd/bin/gd.py state loop_locked yes
 ```
 
 Update STATE.md's "What just happened" / "What is next", then report to the user:
-the one-sentence loop, the palette keys, the scope fence, and any assumption you
+the one-sentence loop, the palette keys, the failure state, and any assumption you
 made on their behalf. Recommend `/gd:plan`.

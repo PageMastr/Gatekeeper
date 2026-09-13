@@ -87,11 +87,12 @@ hand-written `uid://`): `gsd-gd/references/gdscript-4x.md`.
 
 ## When the docs are ambiguous
 
-The full C++ source is at `D:/Godot/GodotEngine` — the same tree this binary was
+The full C++ source is at `toolchain.godot.source_root` **if this machine has a
+checkout** (`gd config` prints it; blank means none) — the same tree the binary was
 built from, so it is authoritative. Grep the implementation:
 
 ```bash
-grep -rn "move_and_slide" D:/Godot/GodotEngine/scene/3d/physics/character_body_3d.cpp
+grep -rn "move_and_slide" "$SOURCE_ROOT/scene/3d/physics/character_body_3d.cpp"
 ```
 
 ## If the index is missing

@@ -16,6 +16,7 @@
 - loop_locked: no
 - palette_locked: no
 - greybox_passed: no
+- greybox_stage: 01
 - phase_gate: none
 - last_verdict: none
 - blockers: none
@@ -27,10 +28,18 @@
 `run record` and `run gate`, so a resumed session sees the real state rather
 than the template's.
 
-**`greybox_passed` is not automatic.** A green phase gate is necessary and not
-sufficient: Law 1 also requires a person to play it and answer *would I press
-start again?* `/gd:greybox` sets it, after that. `phase_gate: green` with
-`greybox_passed: no` is the normal, correct state while waiting for the human.
+**`greybox_passed` is not automatic, and it is not per-phase.** The greybox is a
+*block* of stages (see `ROADMAP.md`), and this flag refers to the block, not to
+whichever one just went green. It flips only when the **last** greybox stage
+clears **and** a person has played it and answered *would I press start again?*
+
+So `phase_gate: green` with `greybox_passed: no` is the normal, correct state
+for every greybox stage except the last — and for the last one, while waiting
+for the human. `gd run init` reads it and refuses asset work until it is `yes`;
+`gd run status` prints how many of the block's stages are done.
+
+`greybox_stage` tracks which stage of the block is current, for readability.
+`gd roadmap status` is the authority.
 
 ### Beat values
 

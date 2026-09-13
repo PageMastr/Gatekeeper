@@ -11,17 +11,51 @@ good precisely because it never fills with implementation — the moment you wri
 GDScript in this session, every later plan you produce is worse.
 
 @gsd-gd/references/laws.md
+@gsd-gd/references/decomposition.md
 @gsd-gd/references/model-routing.md
 
 ## Read first
 
-`.planning/CORE_LOOP.md`, `CONTEXT.md`, `COLOR_BIBLE.md`, `BUDGET.md`,
-`STATE.md`, and the previous phase's retro section if there is one. The retro is
-the most valuable input you have; it says how the last plan was wrong.
+`.planning/ROADMAP.md` — specifically **this stage's row and its target and pass
+conditions**. The plan you write delivers exactly that target, and the phase gate
+asserts exactly those pass conditions. If they cannot be turned into runnable
+commands, fix the roadmap row first; do not quietly invent a weaker gate here.
+
+Then `CORE_LOOP.md`, `CONTEXT.md`, `COLOR_BIBLE.md`, `BUDGET.md`, `STATE.md`, and
+the previous phase's retro section if there is one. The retro is the most
+valuable input you have; it says how the last plan was wrong.
+
+## You never cut the game to fit the plan
+
+When the work does not fit, **the plan is what changes** (Law 13b). Do not
+propose dropping a feature and do not ask what can be sacrificed. A stage whose
+job list will not fit one plan is a stage that needs splitting in the roadmap —
+say so, name the split, and re-run `gd roadmap`. Something that must genuinely
+wait goes to **Later stages** with the stage number it will get.
+
+Thinning a job list to fit is the failure mode this rule exists to prevent,
+because it looks like good judgement and silently ships less game.
 
 Refuse to plan if `loop_locked` or `palette_locked` is `no` — a plan written
 against an unlocked loop is a plan for a different game than the one that gets
 built.
+
+## If this is a greybox-block stage
+
+The block's job is the whole game in grey. This stage's slice of it needs enough
+jobs to actually build that slice, not a token pass:
+
+- **one blockout job per space** the stage owns, each ending in a walk-through
+  playtest whose `moved` check names the nodes traversed via `via`. A bare
+  distance check is satisfied by any open floor — that is how a check named
+  `walked_the_spine` passed at 41 m in a scene with no spine.
+- **one job per system** the stage owns, each with a `lab/` scene that makes the
+  system observable alone before it is wired in (Law 13).
+- **wiring jobs**, serialised, because they touch shared scenes.
+- **a tuning job at the end**, adjusting distances, rates and timings against
+  measured numbers from the playtests. A greybox whose numbers were never tuned
+  proves the loop runs, not that it is worth running.
+- in the **last** block stage: `loop_complete`, `can_lose` and `partial_input`.
 
 ## Decompose
 
@@ -63,8 +97,10 @@ than a finished kit with no scene in it. Thin vertical slice first, then widen.
 
 ## Sanity pass before you hand it over
 
-- Does this milestone advance the Core Loop, or is it decoration? Decoration
-  before the loop is complete is out of scope by definition — say so.
+- Does the plan deliver the stage's roadmap **target**, and does the phase gate
+  assert every one of its **pass conditions**? Check them off one by one.
+- Does this stage advance the Core Loop, or is it decoration? Decoration before
+  the loop is proven belongs to a later stage — say which, do not delete it.
 - Is there a job that proves the player can **lose**? Failure states are
   routinely forgotten and they are half the loop.
 - Does any job depend on a model's taste rather than a measurement? Route it to

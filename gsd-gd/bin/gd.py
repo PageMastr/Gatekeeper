@@ -39,6 +39,29 @@ SYS_DIR = Path(__file__).resolve().parents[1]   # .../gsd-gd
 CONFIG = SYS_DIR / "config.json"
 
 
+def claude_home() -> Path:
+    """Where Claude Code keeps user-scope configuration."""
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
+
+
+# The machine's toolchain, written once by `gd setup` and never shipped.
+#
+# This deliberately lives OUTSIDE the installed payload. `install.py` copies
+# `gsd-gd/` wholesale on every upgrade, so anything the wizard wrote into
+# `gsd-gd/config.json` would be destroyed by the next install - and the first
+# symptom would be `gd doctor` reporting a Godot binary that used to be there.
+# Keeping it beside the install instead of inside it makes upgrades safe and
+# makes the shipped config.json pure, version-controllable defaults.
+MACHINE_CONFIG = Path(os.environ.get("GD_MACHINE_CONFIG")
+                      or (claude_home() / "gsd-gd.machine.json"))
+
+# Derived caches (the Godot API index) must not be written into the install
+# root: it is shared by every project on the machine and, when installed with
+# --link, is a working git checkout. Keyed by engine build so two engines on one
+# machine cannot serve each other's API.
+CACHE_ROOT = Path(os.environ.get("GD_CACHE_DIR") or (claude_home() / "gsd-gd-cache"))
+
+
 def _true_case(p: Path) -> Path:
     """The path as the filesystem actually spells it.
 
@@ -62,6 +85,14 @@ def _true_case(p: Path) -> Path:
         return p
 
 
+def _is_inside(child: Path, parent: Path) -> bool:
+    try:
+        Path(child).resolve().relative_to(Path(parent).resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _find_work_root() -> Path:
     """Resolve the workspace: explicit override, then an existing project, then
     a repo root, then the cwd."""
@@ -71,10 +102,17 @@ def _find_work_root() -> Path:
         if p.is_dir():
             return _true_case(p)
     here = Path.cwd().resolve()
+    # An existing workspace always wins, from anywhere inside it - this is what
+    # lets `gd` be run from `game/<slug>/` and still find the contracts.
     for cand in [here, *here.parents]:
         if (cand / ".planning").is_dir():
             return _true_case(cand)
+    # Then the enclosing repository, so a fresh checkout of a game repo works
+    # before `.planning/` exists. Stop at the install root: a game must never
+    # take the shared system's directory as its workspace.
     for cand in [here, *here.parents]:
+        if _is_inside(cand, SYS_DIR):
+            break
         if (cand / ".git").exists():
             return _true_case(cand)
     return _true_case(here)
@@ -122,20 +160,62 @@ def cfg() -> dict:
     no per-project override meant one game's numbers were every game's numbers,
     and one game's lighting presets ended up in three others.
 
-    `toolchain` is the deliberate exception in spirit - it describes the machine,
-    not the game - but it is still overridable, because a project pinned to a
-    different engine build is a real case.
+    Three layers, lowest first:
+
+      1. `gsd-gd/config.json`  - shipped defaults. Version-controlled, identical
+         on every machine, and **overwritten by every upgrade**. It carries no
+         absolute paths, because a path that works on the author's machine is
+         the one thing guaranteed not to work on anybody else's.
+      2. `~/.claude/gsd-gd.machine.json` - this machine's toolchain, written by
+         `gd setup`. Outside the install payload so upgrades cannot destroy it.
+      3. `.planning/config.json` - this game's overrides, under the game's own
+         version control.
+
+    Then `GD_GODOT` / `GD_BLENDER` / `GD_GODOT_SOURCE` on top, as a per-shell
+    escape hatch.
     """
     if not CONFIG.exists():
         die("missing config at " + str(CONFIG))
     base = json.loads(CONFIG.read_text(encoding="utf-8"))
+    base = _deep_merge(base, machine_config())
     p = project_config_path()
     if p.exists():
         try:
-            return _deep_merge(base, json.loads(p.read_text(encoding="utf-8")))
+            base = _deep_merge(base, json.loads(p.read_text(encoding="utf-8")))
         except json.JSONDecodeError as e:
             die("%s is not valid JSON: %s" % (p, e))
-    return base
+    return _deep_merge(base, _env_toolchain())
+
+
+def machine_config() -> dict:
+    """This machine's toolchain, from `gd setup`. Empty before the wizard runs."""
+    if not MACHINE_CONFIG.exists():
+        return {}
+    try:
+        return json.loads(MACHINE_CONFIG.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        die("%s is not valid JSON: %s\n"
+            "       Delete it and re-run `gd setup`." % (MACHINE_CONFIG, e))
+
+
+def _env_toolchain() -> dict:
+    """Per-shell escape hatch, applied last.
+
+    Exists so a single invocation can be pointed at a different engine without
+    editing any file - useful when testing against two Godot builds. It is
+    deliberately the *last* layer: an env var set for one experiment should not
+    be silently outranked by a project file.
+    """
+    out: dict = {}
+    g, b, src = (os.environ.get("GD_GODOT"), os.environ.get("GD_BLENDER"),
+                 os.environ.get("GD_GODOT_SOURCE"))
+    if g:
+        out.setdefault("toolchain", {})["godot"] = {"console": g, "editor": g}
+    if src:
+        out.setdefault("toolchain", {}).setdefault("godot", {})["source_root"] = src
+    if b:
+        out.setdefault("toolchain", {})["blender"] = {"exe": b}
+    return out
 
 
 def config_provenance() -> dict:
@@ -160,6 +240,86 @@ def config_provenance() -> dict:
                 out[key] = v
         return out
     return flat(over)
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write via a temp file in the same directory, then replace.
+
+    One install drives many projects, and `/gd:run` dispatches parallel waves -
+    so two writers can reach the same file. A half-written `RUN.json` or
+    `STATE.md` is worse than a stale one: the next session parses it, fails,
+    and reports the *project* as broken. `os.replace` is atomic on both POSIX
+    and Windows, so a reader sees either the old file or the new one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp-%d-%s" % (os.getpid(), uuid.uuid4().hex[:6]))
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(str(tmp), str(path))
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def write_json_atomic(path: Path, data) -> None:
+    write_text_atomic(path, json.dumps(data, indent=2, default=str))
+
+
+class FileLock:
+    """Cooperative lock around a read-modify-write of a shared state file.
+
+    `gd run record` reads RUN.json, mutates it and writes it back. Two jobs of
+    the same wave recording within the same instant would otherwise lose one of
+    the two results - and a lost `fail` reads as a job that was never attempted,
+    which quietly grants an extra turn of the escalation ladder.
+
+    Deliberately simple: an O_EXCL sentinel, a bounded wait, and a staleness
+    break. It does not try to be a distributed lock; it only has to make two
+    processes on one machine take turns.
+    """
+
+    def __init__(self, target: Path, timeout: float = 30.0):
+        self.path = target.with_name(target.name + ".lock")
+        self.timeout = timeout
+        self.fd = None
+
+    def __enter__(self):
+        deadline = time.time() + self.timeout
+        while True:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(self.fd, ("%d %s" % (os.getpid(), now())).encode())
+                return self
+            except FileExistsError:
+                # A process that died mid-write must not wedge the project
+                # forever; after the timeout the lock is assumed abandoned.
+                try:
+                    age = time.time() - self.path.stat().st_mtime
+                except OSError:
+                    age = 0
+                if age > self.timeout or time.time() > deadline:
+                    try:
+                        self.path.unlink()
+                    except OSError:
+                        pass
+                    continue
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        if self.fd is not None:
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+        try:
+            self.path.unlink()
+        except OSError:
+            pass
+        return False
 
 
 def emit(verb: str, payload: dict) -> None:
@@ -204,19 +364,420 @@ def find_project(start=None) -> Path:
     return proj
 
 
+NO_TOOLCHAIN = (
+    "\n       The toolchain has not been configured on this machine yet."
+    "\n       Run `gd setup` - it autodetects Godot and Blender, and asks only"
+    "\n       for what it cannot find. It writes %s,"
+    "\n       which no upgrade of the system touches.")
+
+
+def _tool_path(kind: str, keys) -> str:
+    """First configured key that exists on disk, with an actionable error."""
+    c = (cfg().get("toolchain") or {}).get(kind) or {}
+    tried = []
+    for k in keys:
+        v = (c.get(k) or "").strip()
+        if not v:
+            continue
+        tried.append(v)
+        if Path(v).exists():
+            return v
+    if not tried:
+        die("no %s path is configured." % kind + NO_TOOLCHAIN % MACHINE_CONFIG)
+    die("%s is configured but not on disk: %s\n"
+        "       Re-run `gd setup` to point it somewhere real."
+        % (kind, ", ".join(tried)))
+
+
 def godot_bin() -> str:
-    c = cfg()["toolchain"]["godot"]
-    exe = c["console"] if Path(c["console"]).exists() else c["editor"]
-    if not Path(exe).exists():
-        die("Godot binary not found: " + exe)
-    return exe
+    # `console` first: on Windows the plain .exe detaches from the terminal and
+    # every line of engine output is lost, which reads as a silent hang.
+    return _tool_path("godot", ("console", "editor"))
 
 
 def blender_bin() -> str:
-    exe = cfg()["toolchain"]["blender"]["exe"]
-    if not Path(exe).exists():
-        die("Blender binary not found: " + exe)
-    return exe
+    return _tool_path("blender", ("exe",))
+
+
+# --------------------------------------------------------------------------- #
+# setup  (make the system work on THIS machine, without editing anything)
+# --------------------------------------------------------------------------- #
+# Nothing below may assume a drive letter, a home directory layout, or an OS.
+# This system is meant to be downloaded and used by people whose disks look
+# nothing like the author's - so every path here is either discovered at
+# runtime or supplied by the user, and the answer is written to a file the
+# installer never touches.
+
+
+def _candidate_dirs(env_keys, subpaths):
+    """Expand (%ENVVAR%, relative subpath) pairs that actually exist."""
+    out = []
+    for key in env_keys:
+        base = os.environ.get(key)
+        if not base:
+            continue
+        for sub in subpaths:
+            d = Path(base) / sub
+            if d.is_dir():
+                out.append(d)
+    return out
+
+
+def _run_version(exe, args, pattern) -> str:
+    """Version string if this binary really is what we think it is, else ''."""
+    try:
+        r = subprocess.run([str(exe)] + list(args), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    blob = (r.stdout or "") + "\n" + (r.stderr or "")
+    m = re.search(pattern, blob)
+    return m.group(0).strip() if m else ""
+
+
+def _windows_roots():
+    """Drive letters that exist, so detection is not confined to C:.
+
+    Observed on the machine this system was written on: Godot lived on D: and
+    Blender on D:, and every "standard location" lookup missed both. A developer
+    with a second drive is the common case, not the exotic one.
+    """
+    roots = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        d = Path(letter + ":/")
+        try:
+            if d.is_dir():
+                roots.append(d)
+        except OSError:
+            continue
+    return roots
+
+
+def _dedupe(paths):
+    seen, out = set(), []
+    for p in paths:
+        try:
+            key = str(Path(p).resolve()).lower()
+        except OSError:
+            key = str(p).lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(Path(p))
+    return out
+
+
+def discover_godot() -> list:
+    """Every plausible Godot binary on this machine, best first.
+
+    Ordering matters more than completeness: on Windows the `.console.exe` must
+    win, because the plain executable detaches from the terminal and the caller
+    receives no stdout at all - which presents as a silent hang rather than as
+    a misconfiguration, and is the single most confusing failure this system
+    can hand a new user.
+    """
+    hits = []
+    for n in ("godot", "godot4", "godot-editor", "Godot"):
+        w = shutil.which(n)
+        if w:
+            hits.append(Path(w))
+    if os.name == "nt":
+        dirs = _candidate_dirs(
+            ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA", "APPDATA",
+             "USERPROFILE", "ProgramData", "SystemDrive"],
+            ["Godot", "GodotEngine", "Programs/Godot", "Programs/GodotEngine",
+             "Downloads", "Desktop", "scoop/apps/godot/current",
+             "Steam/steamapps/common/Godot Engine",
+             "chocolatey/lib/godot/tools"])
+        for root in _windows_roots():
+            for sub_ in ("Godot", "GodotEngine", "Godot Engine", "godot",
+                         "Program Files/Godot", "Program Files/Godot Engine",
+                         "Dev/Godot", "Tools/Godot", "Apps/Godot"):
+                d = root / sub_
+                if d.is_dir():
+                    dirs.append(d)
+        # Godot ships as a bare executable in a folder the user named, and a
+        # scons-built checkout puts its binaries under bin/. Descend one level
+        # from each candidate so e.g. `<drive>/Godot/<build>/bin/` is reachable
+        # from `<drive>/Godot` without scanning the whole drive.
+        for d in list(dirs):
+            if (d / "bin").is_dir():
+                dirs.append(d / "bin")
+            try:
+                for child in sorted(d.iterdir())[:40]:
+                    if not child.is_dir():
+                        continue
+                    dirs.append(child)
+                    if (child / "bin").is_dir():
+                        dirs.append(child / "bin")
+            except OSError:
+                pass
+        for d in _dedupe(dirs):
+            for pat in ("godot*.console.exe", "Godot*.console.exe",
+                        "godot*.exe", "Godot*.exe"):
+                hits += sorted(d.glob(pat))
+    elif sys.platform == "darwin":
+        for d in (Path("/Applications"), Path.home() / "Applications"):
+            if d.is_dir():
+                hits += sorted(d.glob("Godot*.app/Contents/MacOS/Godot"))
+        hits += [Path("/opt/homebrew/bin/godot"), Path("/usr/local/bin/godot")]
+    else:
+        hits += [Path("/usr/bin/godot"), Path("/usr/local/bin/godot"),
+                 Path("/snap/bin/godot"), Path("/snap/bin/godot4"),
+                 Path.home() / ".local/bin/godot",
+                 Path("/var/lib/flatpak/exports/bin/org.godotengine.Godot"),
+                 Path.home() / ".local/share/flatpak/exports/bin/org.godotengine.Godot"]
+        for d in (Path.home() / "Downloads", Path.home() / "Applications",
+                  Path("/opt")):
+            if d.is_dir():
+                hits += sorted(d.glob("Godot*"))
+                hits += sorted(d.glob("*/Godot*"))
+
+    def rank(p):
+        n = p.name.lower()
+        template = any(t in n for t in ("template_debug", "template_release",
+                                        "export_template"))
+        return (1 if template else 0,          # editor builds only
+                0 if "console" in n else 1,    # stdout capture on Windows
+                1 if "mono" in n else 0,       # plain build unless it is all there is
+                str(p).lower())
+
+    out = [c for c in _dedupe(hits) if c.is_file()]
+    return sorted(out, key=rank)
+
+
+def discover_blender() -> list:
+    """Every plausible Blender binary, newest version first."""
+    hits = []
+    w = shutil.which("blender")
+    if w:
+        hits.append(Path(w))
+    if os.name == "nt":
+        dirs = _candidate_dirs(
+            ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA", "USERPROFILE",
+             "ProgramData", "SystemDrive"],
+            ["Blender Foundation", "Programs/Blender Foundation", "Blender",
+             "Steam/steamapps/common/Blender", "scoop/apps/blender/current"])
+        for root in _windows_roots():
+            for sub_ in ("Blender Foundation", "Blender", "Program Files/Blender Foundation",
+                         "Dev/Blender", "Tools/Blender"):
+                d = root / sub_
+                if d.is_dir():
+                    dirs.append(d)
+        for d in _dedupe(dirs):
+            for pat in ("blender.exe", "*/blender.exe", "*/*/blender.exe"):
+                hits += sorted(d.glob(pat))
+    elif sys.platform == "darwin":
+        for d in (Path("/Applications"), Path.home() / "Applications"):
+            if d.is_dir():
+                hits += sorted(d.glob("Blender*.app/Contents/MacOS/Blender"))
+        hits += [Path("/opt/homebrew/bin/blender")]
+    else:
+        hits += [Path("/usr/bin/blender"), Path("/usr/local/bin/blender"),
+                 Path("/snap/bin/blender"),
+                 Path("/var/lib/flatpak/exports/bin/org.blender.Blender"),
+                 Path.home() / ".local/share/flatpak/exports/bin/org.blender.Blender"]
+        for d in (Path("/opt"), Path.home() / "Downloads"):
+            if d.is_dir():
+                hits += sorted(d.glob("blender*/blender"))
+
+    def rank(p):
+        m = re.findall(r"(\d+)\.(\d+)", str(p))
+        v = tuple(int(x) for x in m[-1]) if m else (0, 0)
+        return (-v[0], -v[1], str(p).lower())
+
+    out = [c for c in _dedupe(hits)
+           if c.is_file() and "launcher" not in c.name.lower()]
+    return sorted(out, key=rank)
+
+
+def _ask(prompt: str) -> str:
+    """Prompt only when a human is actually there.
+
+    `gd` is driven by agents far more often than by people, and a blocking read
+    on a pipe is indistinguishable from a hung toolchain. With no terminal the
+    wizard reports what it found and exits non-zero instead - which an agent
+    can read and act on.
+    """
+    if not sys.stdin or not sys.stdin.isatty():
+        return ""
+    try:
+        return input(prompt).strip().strip('"').strip("'")
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+def _resolve_tool(kind, explicit, candidates, verify_args, verify_pat, hint):
+    """(path, version, how) for one tool, or (None, '', reason)."""
+    if explicit:
+        p = Path(explicit).expanduser()
+        if not p.exists():
+            return None, "", "the path given does not exist: " + str(p)
+        v = _run_version(p, verify_args, verify_pat)
+        if not v:
+            return None, "", "%s did not identify itself as %s" % (p, kind)
+        return p, v, "given"
+    for c in candidates[:12]:
+        v = _run_version(c, verify_args, verify_pat)
+        if v:
+            return c, v, "autodetected"
+    print("")
+    print("  Could not find %s automatically." % kind)
+    print("  " + hint)
+    if candidates:
+        print("  Tried: " + ", ".join(str(c) for c in candidates[:5]))
+    ans = _ask("  Full path to the %s executable (blank to skip): " % kind)
+    if not ans:
+        return None, "", "not found, and no path was supplied"
+    p = Path(ans).expanduser()
+    if not p.exists():
+        return None, "", "no such file: " + str(p)
+    v = _run_version(p, verify_args, verify_pat)
+    if not v:
+        return None, "", "%s did not identify itself as %s" % (p, kind)
+    return p, v, "supplied"
+
+
+def cmd_setup(a) -> int:
+    """Detect this machine's toolchain and record it, once.
+
+    Everything written here lives outside the installed system, so
+    `python install.py` can be re-run any number of times without disturbing
+    it. That separation is the whole point: an upgrade that silently unsets
+    the user's Godot path is indistinguishable from a broken release.
+    """
+    existing = machine_config()
+    if a.show:
+        emit("setup", {"ok": bool(existing), "action": "show",
+                       "path": str(MACHINE_CONFIG), "config": existing})
+        print("  machine config  " + str(MACHINE_CONFIG)
+              + ("" if MACHINE_CONFIG.exists() else "   (not written yet)"))
+        if existing:
+            print(json.dumps(existing, indent=2))
+        else:
+            print("  Nothing recorded yet - run `gd setup`.")
+        return 0 if existing else 1
+
+    if MACHINE_CONFIG.exists() and not (a.force or a.godot or a.blender):
+        print("  %s already exists; re-detecting." % MACHINE_CONFIG)
+        print("  (--godot/--blender set one explicitly, --force skips this note.)")
+
+    print("")
+    print("  GSD-GameDev setup")
+    print("  platform   %s" % sys.platform)
+    print("  system     %s" % SYS_DIR)
+    print("  writing    %s" % MACHINE_CONFIG)
+
+    godot_c = [] if a.godot else discover_godot()
+    blender_c = [] if a.blender else discover_blender()
+    if godot_c:
+        print("\n  Godot candidates:")
+        for c in godot_c[:6]:
+            print("    " + str(c))
+    if blender_c:
+        print("\n  Blender candidates:")
+        for c in blender_c[:6]:
+            print("    " + str(c))
+
+    gpath, gver, ghow = _resolve_tool(
+        "Godot", a.godot, godot_c, ["--headless", "--version"],
+        r"\d+\.\d+[^\s]*",
+        "Godot 4.4 or newer, from godotengine.org. Unzip it anywhere and give "
+        "the path to the executable.")
+    bpath, bver, bhow = _resolve_tool(
+        "Blender", a.blender, blender_c, ["--version"], r"\d+\.\d+[^\s]*",
+        "Blender 4.0 or newer, from blender.org. On Windows it is blender.exe "
+        "inside the install folder; on macOS, inside "
+        "Blender.app/Contents/MacOS/.")
+
+    notes = []
+    conf = dict(existing)
+    tc = dict(conf.get("toolchain") or {})
+
+    if gpath:
+        console = gpath
+        if os.name == "nt" and "console" not in gpath.name.lower():
+            sib = gpath.with_name(gpath.stem + ".console" + gpath.suffix)
+            if sib.exists():
+                console = sib
+                notes.append("using the .console build for stdout capture: " + sib.name)
+            else:
+                notes.append("no .console build beside this binary - on Windows "
+                             "some engine output may be lost")
+        src = ""
+        if a.godot_source:
+            src = str(Path(a.godot_source).expanduser()).replace("\\", "/")
+        else:
+            for up in (gpath.parent, gpath.parent.parent, gpath.parent.parent.parent):
+                if (up / "doc" / "classes").is_dir():
+                    src = str(up).replace("\\", "/")
+                    notes.append("found an engine source tree at " + src)
+                    break
+        tc["godot"] = {
+            "editor": str(gpath).replace("\\", "/"),
+            "console": str(console).replace("\\", "/"),
+            "version": gver,
+            "source_root": src,
+            "notes": ("`console` is what every agent-driven invocation uses: on "
+                      "Windows the plain .exe detaches from the terminal and the "
+                      "caller gets no stdout. `source_root` is optional - when it "
+                      "is blank, `gddoc index` has the engine generate its own "
+                      "class reference with --doctool."),
+        }
+    if bpath:
+        tc["blender"] = {"exe": str(bpath).replace("\\", "/"), "version": bver}
+
+    conf["toolchain"] = tc
+    conf["_doc"] = ("This machine's toolchain, written by `gd setup`. It lives "
+                    "outside the installed system on purpose, so re-running "
+                    "install.py never destroys it. Per-GAME settings belong in "
+                    "that game's .planning/config.json, never here.")
+    conf["written"] = now()
+    conf["platform"] = sys.platform
+
+    ok = bool(gpath) and bool(bpath)
+    if gpath or bpath:
+        MACHINE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(MACHINE_CONFIG, conf)
+
+    print("")
+    print("  godot     " + (("%s  (%s, %s)" % (tc.get("godot", {}).get("console", "-"),
+                                               gver, ghow)) if gpath
+                            else "NOT SET - " + ghow))
+    print("  blender   " + (("%s  (%s, %s)" % (bpath, bver, bhow)) if bpath
+                            else "NOT SET - " + bhow))
+    for n in notes:
+        print("  note      " + n)
+    if gpath or bpath:
+        print("  wrote     " + str(MACHINE_CONFIG))
+
+    idx = None
+    if gpath and not a.no_index:
+        print("")
+        print("  Building the Godot API index - this is what stops agents writing")
+        print("  Godot 3 code from memory. Takes a minute on a first run.")
+        r = run([sys.executable, str(SYS_DIR / "bin" / "gddoc.py"), "index", "--force"],
+                timeout=1800)
+        m = re.search(r'"classes":\s*(\d+)', r.stdout or "")
+        idx = int(m.group(1)) if m else None
+        print("  api index " + ("%d classes" % idx if idx else
+                                "FAILED\n" + ((r.stdout or "") + (r.stderr or ""))[-800:]))
+        if not idx:
+            ok = False
+
+    emit("setup", {"ok": ok, "path": str(MACHINE_CONFIG), "godot": str(gpath or ""),
+                   "godot_version": gver, "blender": str(bpath or ""),
+                   "blender_version": bver, "api_classes": idx, "notes": notes,
+                   "godot_candidates": [str(c) for c in godot_c[:8]],
+                   "blender_candidates": [str(c) for c in blender_c[:8]]})
+    print("")
+    if ok:
+        print("  Ready. `gd doctor` to confirm, then `/gd:new <your idea>` in the")
+        print("  directory you want the game to live in.")
+    else:
+        print("  Setup is incomplete. Re-run with explicit paths:")
+        print("    gd setup --godot <path-to-godot> --blender <path-to-blender>")
+    print("")
+    return 0 if ok else 1
 
 
 # --------------------------------------------------------------------------- #
@@ -257,6 +818,37 @@ def cmd_doctor(a) -> int:
 
     check("git", shutil.which("git") is not None, shutil.which("git") or "")
     check("python", sys.version_info >= (3, 10), sys.version.split()[0])
+
+    # The API index is not a nicety. Without it every agent that writes GDScript
+    # falls back on Godot 3 recall, which is the largest single source of broken
+    # code in this system - and it fails at runtime, not at write time.
+    r = run([sys.executable, str(SYS_DIR / "bin" / "gddoc.py"), "stats"], timeout=300)
+    m = re.search(r'"classes":\s*(\d+)', r.stdout or "")
+    check("api_index", bool(m) and int(m.group(1)) > 100,
+          ("%s classes" % m.group(1)) if m else
+          "missing - run `gd setup` (or `gddoc index`)")
+
+    check("machine_config", MACHINE_CONFIG.exists(),
+          str(MACHINE_CONFIG) if MACHINE_CONFIG.exists()
+          else "not written - run `gd setup`. Until then the toolchain is "
+               "whatever the shipped defaults say, which is nothing.")
+
+    # The install is shared by every project on this machine. A workspace inside
+    # it means one game's contracts sit where `install.py` will eventually
+    # overwrite or delete them, and where every other game can see them.
+    inside = _is_inside(WORK, SYS_DIR)
+    check("work_root_outside_install", not inside,
+          ("%s is inside the installed system at %s - move the game somewhere "
+           "of its own" % (WORK, SYS_DIR)) if inside else "ok")
+    # Working in the system's own source checkout is legitimate (that is how the
+    # system itself is developed) but a game scaffolded there gets committed to
+    # the system's repo by accident. Say so without failing.
+    if not inside and (WORK / "gsd-gd" / "config.json").exists():
+        checks.append({"check": "work_root_is_system_repo", "ok": False,
+                       "detail": "%s looks like the GSD-GameDev source repo. A game "
+                                 "created here lands in the system's own history. "
+                                 "Work in a directory of its own, or set GD_PROJECT."
+                                 % WORK})
     checks.append({"check": "planning_dir", "ok": PLANNING.exists(), "detail": str(PLANNING)})
     proj = locate_project()
     checks.append({"check": "godot_project", "ok": proj is not None,
@@ -273,15 +865,19 @@ def cmd_doctor(a) -> int:
                   "local edits to the grader: %s - run `gd harness --check`"
                   % ", ".join(dr["modified"] + dr["missing"]))
 
-    soft = ("planning_dir", "godot_project")
+    # Soft checks describe the workspace, not the toolchain: they are expected
+    # to be red before `gd init`, and red in the system's own repo.
+    soft = ("planning_dir", "godot_project", "work_root_is_system_repo")
     ok = all(x["ok"] for x in checks if x["check"] not in soft)
     emit("doctor", {"ok": ok, "checks": checks,
                     "system_dir": str(SYS_DIR), "work_root": str(WORK),
                     "work_root_from": ("GD_PROJECT" if os.environ.get("GD_PROJECT")
                                        else ".planning found" if PLANNING.is_dir()
                                        else "git root / cwd")})
-    print("  system  " + str(SYS_DIR))
-    print("  work    " + str(WORK))
+    print("  system  " + str(SYS_DIR) + "   (shipped defaults; read-only at runtime)")
+    print("  machine " + str(MACHINE_CONFIG)
+          + ("" if MACHINE_CONFIG.exists() else "   (not written - run `gd setup`)"))
+    print("  work    " + str(WORK) + "   (this game's .planning/ and game/)")
     for x in checks:
         mark = "  [ok]   " if x["ok"] else "  [FAIL] "
         print(mark + x["check"] + ("  " + str(x["detail"]) if x["detail"] else ""))
@@ -301,6 +897,22 @@ def tpl(name: str) -> str:
 def cmd_init(a) -> int:
     name = a.name
     slug = re.sub(r"[^a-z0-9_-]+", "-", name.lower()).strip("-")
+    if not slug:
+        die("'%s' has no usable characters for a directory name - give the game "
+            "a name with letters or digits in it." % name)
+    # A game scaffolded inside the installed system would be shared by every
+    # project on the machine and destroyed by the next `install.py`. This is the
+    # one placement mistake the system cannot recover from, so refuse it.
+    if _is_inside(WORK, SYS_DIR):
+        die("refusing to create a game inside the installed system (%s).\n"
+            "       The system is shared by every project on this machine and is\n"
+            "       replaced wholesale on upgrade. cd to the directory you want\n"
+            "       the game to live in, or set GD_PROJECT to it." % SYS_DIR)
+    if (WORK / "gsd-gd" / "config.json").exists() and not a.force:
+        die("%s is the GSD-GameDev source repo itself.\n"
+            "       A game created here would be committed to the system's own\n"
+            "       history. cd to a directory of its own (or set GD_PROJECT), or\n"
+            "       pass --force if you genuinely mean to scaffold here." % WORK)
     proj = WORK / "game" / slug
     if proj.exists() and not a.force:
         die(str(proj) + " already exists (use --force)")
@@ -522,8 +1134,7 @@ def cmd_version(a) -> int:
             if was and was != cur["hash"]:
                 changed.append(name)
     if a.record:
-        stamp.parent.mkdir(parents=True, exist_ok=True)
-        stamp.write_text(json.dumps(fp, indent=2), encoding="utf-8")
+        write_json_atomic(stamp, fp)
         emit("version", {"ok": True, "action": "record", **fp})
         print("  recorded %s (%s) to %s" % (fp["hash"], fp["version"], stamp))
         return 0
@@ -706,6 +1317,11 @@ def write_state(key: str, value: str, touch_only: bool = False) -> bool:
     p = PLANNING / "STATE.md"
     if not p.exists():
         return False
+    with FileLock(p):
+        return _write_state_locked(p, key, value, touch_only)
+
+
+def _write_state_locked(p: Path, key: str, value: str, touch_only: bool) -> bool:
     text = p.read_text(encoding="utf-8")
     if not touch_only:
         pat = r"^(-\s+" + re.escape(key) + r":).*$"
@@ -713,7 +1329,7 @@ def write_state(key: str, value: str, touch_only: bool = False) -> bool:
         if n == 0:
             text = text.replace("## Now\n", "## Now\n- " + key + ": " + value + "\n", 1)
     text = re.sub(r"^(-\s+updated:).*$", r"\1 " + now(), text, count=1, flags=re.M)
-    p.write_text(text, encoding="utf-8")
+    write_text_atomic(p, text)
     return True
 
 
@@ -827,10 +1443,28 @@ def agent_model(agent: str) -> str:
 PLACEHOLDER_RE = re.compile(r"[<>]|^-$|^$|^TBD$|^\.\.\.$", re.I)
 
 
+_PLACEHOLDER_RE_PAIR = re.compile(r"<[^<>]*>")
+
+
 def _unfilled(cell: str) -> bool:
-    """True if a table cell is still template boilerplate."""
+    """True if a table cell is still template boilerplate.
+
+    A cell is boilerplate when nothing survives removing every `<…>` group.
+    Testing for a bare angle bracket instead - which is what this did - fails
+    the very cells it is meant to protect: real pass conditions are full of
+    `>=`, `<` and `->`, so `player walks spawn -> woodline in 22-32 s` was
+    reported as an unfilled placeholder. A false failure on correct work is
+    worse than a missed one, because it gets designed around.
+    """
     c = (cell or "").strip()
-    return bool(re.search(r"[<>]", c)) or c in ("", "-", "TBD", "...", "…")
+    if c in ("", "-", "TBD", "tbd", "...", "…", "?"):
+        return True
+    # Remove innermost groups repeatedly so a nested `<... <A> ...>` collapses.
+    prev = None
+    while prev != c:
+        prev = c
+        c = _PLACEHOLDER_RE_PAIR.sub("", c)
+    return not c.strip(" \t-–—.·,;:|`*_")
 
 
 def parse_roadmap(path: Path) -> dict:
@@ -842,6 +1476,7 @@ def parse_roadmap(path: Path) -> dict:
             continue
         stages.append({
             "id": "%02d" % int(sid),
+            "block": (row.get("block") or "").strip().lower(),
             "stage": row.get("stage", ""),
             "playable": row.get("playable at the end", ""),
             "depends": [d.strip() for d in re.split(r"[,\s]+", row.get("depends on", ""))
@@ -857,10 +1492,30 @@ def parse_roadmap(path: Path) -> dict:
                     for r in _rows(text, "placeholder")]
     doors = [{"door": r.get("door", ""), "stage": (r.get("taken in stage") or "").strip(),
               "decided": r.get("decided", "")} for r in _rows(text, "door")]
+    # The targets table is keyed on `stage #`, not `#`, precisely so it does not
+    # collide with the Stages table when parsed - two tables whose header starts
+    # with the same cell would silently merge into one list of rows.
+    targets = [{"id": (r.get("stage #") or "").strip(),
+                "target": r.get("target — what this stage is for", ""),
+                "pass": r.get("pass conditions — all must hold", "")}
+               for r in _rows(text, "stage #")]
+    systems = [{"system": r.get("system", ""),
+                "effect": r.get("what it does to the loop", ""),
+                "greybox": (r.get("greyboxed in") or "").strip(),
+                "finish": (r.get("finished in") or "").strip()}
+               for r in _rows(text, "system")]
+    spaces = [{"space": r.get("space", ""), "size": r.get("size (m)", ""),
+               "what": r.get("what happens here", ""),
+               "stage": (r.get("blocked out in") or "").strip()}
+              for r in _rows(text, "space")]
     m = re.search(r"^-\s+end state:\s*(.+)$", text, re.M)
     cur = re.search(r"^-\s+current stage:\s*(.+)$", text, re.M)
+    gb = re.search(r"^-\s+greybox block:\s*(\S+)", text, re.M)
     return {"stages": stages, "coverage": coverage, "placeholders": placeholders,
-            "doors": doors, "end_state": (m.group(1).strip() if m else ""),
+            "doors": doors, "targets": targets, "systems": systems,
+            "spaces": spaces,
+            "greybox_last": (gb.group(1).strip() if gb else ""),
+            "end_state": (m.group(1).strip() if m else ""),
             "current": (cur.group(1).strip() if cur else "")}
 
 
@@ -875,6 +1530,52 @@ def core_loop_beats() -> list:
         action = (row.get("player action") or "").strip()
         if re.fullmatch(r"\d+", b) and action and not _unfilled(action):
             out.append(b)
+    return out
+
+
+def greybox_state() -> dict:
+    """Where this project stands against Law 1, from the roadmap and STATE.
+
+    Law 1 ("the loop before the look") was previously enforced only by prose in
+    two command files, which means it was enforced only when the agent reading
+    them happened to be thorough. The greybox block makes the rule checkable:
+    art may not start until the LAST greybox stage has cleared and a human has
+    played it.
+    """
+    out = {"block": [], "last": "", "done": [], "complete": False,
+           "passed_flag": "no", "ok_for_art": False, "reason": ""}
+    path = PLANNING / "ROADMAP.md"
+    if path.exists():
+        try:
+            rm = parse_roadmap(path)
+        except OSError:
+            rm = None
+        if rm:
+            gb = [x for x in rm["stages"] if x["block"] == "greybox"]
+            out["block"] = [x["id"] for x in gb]
+            out["last"] = out["block"][-1] if out["block"] else ""
+            out["done"] = [x["id"] for x in gb if x["status"] == "done"]
+            out["complete"] = bool(out["block"]) and len(out["done"]) == len(out["block"])
+    sp = PLANNING / "STATE.md"
+    if sp.exists():
+        out["passed_flag"] = parse_state(sp.read_text(encoding="utf-8")).get(
+            "greybox_passed", "no")
+    # Both halves are required. The roadmap knows whether the work is done; only
+    # STATE records that a person actually played it, and that flag is set by a
+    # human-witnessed playtest, never by the driver.
+    if out["passed_flag"] == "yes":
+        out["ok_for_art"] = True
+    elif not out["block"]:
+        out["reason"] = ("the roadmap marks no greybox stages, so there is no "
+                         "evidence the loop has been proven")
+    elif not out["complete"]:
+        remaining = [x for x in out["block"] if x not in out["done"]]
+        out["reason"] = ("the greybox block is not finished - stage(s) %s still "
+                         "planned" % ", ".join(remaining))
+    else:
+        out["reason"] = ("every greybox stage is done but `greybox_passed` is "
+                         "still no - a person has not played it yet. "
+                         "/gd:playtest is what sets that flag.")
     return out
 
 
@@ -909,7 +1610,9 @@ def cmd_roadmap(a) -> int:
             if head == "#":                      # the Stages table header
                 in_stages = True
                 return row
-            if head in ("element", "placeholder", "door", "stage", "date"):
+            if head in ("element", "placeholder", "door", "stage", "date",
+                        "stage #", "system", "space", "what",
+                        "systems + spaces in the game"):
                 in_stages = False                # a different table started
                 return row
             if not in_stages:
@@ -995,6 +1698,131 @@ def cmd_roadmap(a) -> int:
         if _unfilled(d["stage"]):
             warnings.append("one-way door '%s' is not assigned to a stage" % d["door"][:50])
 
+    # ---- targets and pass conditions ------------------------------------- #
+    # Law 4, one level up: a phase whose pass conditions cannot be written is a
+    # phase that is not defined yet. Writing them at kickoff is what stops the
+    # gate being reverse-engineered from whatever happened to get built.
+    tmap = {}
+    for t in rm["targets"]:
+        tid = t["id"]
+        if not re.fullmatch(r"\d+", tid or ""):
+            continue
+        tmap["%02d" % int(tid)] = t
+    for s_ in rm["stages"]:
+        t = tmap.get(s_["id"])
+        if t is None:
+            errors.append("stage %s has no row in Stage targets and pass conditions "
+                          "- it has no definition of done" % s_["id"])
+            continue
+        if _unfilled(t["target"]):
+            errors.append("stage %s: target is still a placeholder - say what the "
+                          "stage is FOR" % s_["id"])
+        if _unfilled(t["pass"]):
+            errors.append("stage %s: pass conditions are still a placeholder - this "
+                          "is what its phase gate has to assert" % s_["id"])
+    for tid in sorted(set(tmap) - {x["id"] for x in rm["stages"]}):
+        warnings.append("targets table has a row for stage %s, which is not in the "
+                        "Stages table" % tid)
+
+    # ---- the greybox block ------------------------------------------------ #
+    gb_rows = [x for x in rm["stages"] if x["block"] == "greybox"]
+    gb_ids = [x["id"] for x in gb_rows]
+    declared = rm["greybox_last"]
+    if not gb_ids:
+        errors.append("no stage is marked `greybox` in the block column - stage 01 "
+                      "is always the greybox (Law 1)")
+    else:
+        if gb_ids[0] != ids[0]:
+            errors.append("the greybox block does not start at the first stage "
+                          "(starts at %s) - nothing may precede the greybox" % gb_ids[0])
+        # Contiguity is what makes `greybox_passed` a single well-defined moment.
+        # A greybox stage after an art stage means art gets built on an unproven
+        # loop, which is the exact failure Law 1 exists to prevent.
+        pos = [ids.index(g) for g in gb_ids]
+        if pos != list(range(pos[0], pos[0] + len(pos))):
+            errors.append("the greybox stages are not contiguous (%s) - a non-greybox "
+                          "stage sits inside the block, so art would be built on an "
+                          "unproven loop" % ", ".join(gb_ids))
+        want_last = gb_ids[-1]
+        if declared and re.fullmatch(r"\d+", declared):
+            declared = "%02d" % int(declared)
+        if not declared:
+            errors.append("`- greybox block:` is not set - it must name the LAST "
+                          "greybox stage (%s), which is the one that flips "
+                          "greybox_passed" % want_last)
+        elif declared != want_last:
+            errors.append("`- greybox block: %s` disagrees with the block column, "
+                          "whose last greybox stage is %s" % (declared, want_last))
+        # The last greybox stage is the Law 1 gate. It has to prove the loop
+        # closes AND that the player can lose - the second half is forgotten in
+        # almost every first pass, so it is checked rather than trusted.
+        lastt = tmap.get(want_last)
+        blob = ((lastt or {}).get("pass", "") + " "
+                + next((x["playable"] for x in rm["stages"] if x["id"] == want_last), "")
+                + " " + next((x["gate"] for x in rm["stages"] if x["id"] == want_last), ""))
+        if not re.search(r"\blos(e|ing|t)\b|\bfail(ure|s|ed)?\b|can_lose|death|die\b",
+                         blob, re.I):
+            errors.append("the last greybox stage (%s) says nothing about losing. "
+                          "A loop with no reachable failure state is half a loop, "
+                          "and it is the half everyone forgets." % want_last)
+
+    # ---- systems inventory ------------------------------------------------ #
+    named_systems = [x for x in rm["systems"] if not _unfilled(x["system"])]
+    if not named_systems:
+        errors.append("the Systems inventory is empty - every game has at least the "
+                      "core verb and the thing that makes turn two different")
+    for sysrow in named_systems:
+        tag = "system '%s'" % sysrow["system"][:40]
+        for field, label in (("greybox", "greyboxed in"), ("finish", "finished in")):
+            v = sysrow[field]
+            if _unfilled(v):
+                errors.append("%s names no `%s` stage" % (tag, label))
+                continue
+            sid = "%02d" % int(v) if v.isdigit() else v
+            if sid not in ids:
+                errors.append("%s points `%s` at stage '%s', which does not exist"
+                              % (tag, label, v))
+            elif field == "greybox" and gb_ids and sid not in gb_ids:
+                errors.append("%s is greyboxed in stage %s, which is outside the "
+                              "greybox block (%s-%s). Every system runs in grey "
+                              "before any of them is made to look good."
+                              % (tag, sid, gb_ids[0], gb_ids[-1]))
+
+    # ---- levels / spaces --------------------------------------------------- #
+    named_spaces = [x for x in rm["spaces"] if not _unfilled(x["space"])]
+    if not named_spaces:
+        errors.append("the Levels/maps table is empty - the player is somewhere, and "
+                      "its size in metres is a decision, not a discovery")
+    for sp in named_spaces:
+        tag = "space '%s'" % sp["space"][:40]
+        if _unfilled(sp["size"]):
+            warnings.append("%s has no size in metres - distances decided during a "
+                            "build are distances nobody chose" % tag)
+        v = sp["stage"]
+        if _unfilled(v):
+            errors.append("%s names no blockout stage - a space with no blockout "
+                          "stage is a space nobody has thought about" % tag)
+            continue
+        sid = "%02d" % int(v) if v.isdigit() else v
+        if sid not in ids:
+            errors.append("%s points at stage '%s', which does not exist" % (tag, v))
+        elif gb_ids and sid not in gb_ids:
+            errors.append("%s is blocked out in stage %s, outside the greybox block "
+                          "(%s-%s). The whole map is greyboxed before anything is "
+                          "built on it." % (tag, sid, gb_ids[0], gb_ids[-1]))
+
+    # ---- is the greybox block big enough for this game? ------------------- #
+    # Advisory, not a failure: the right number depends on how much the stages
+    # actually contain. But one stage carrying eight systems and six spaces is a
+    # phase whose gate cannot fail usefully, and that is worth saying out loud.
+    load = len(named_systems) + len(named_spaces)
+    if gb_ids and load > 5 * len(gb_ids):
+        warnings.append(
+            "the greybox block is %d stage(s) for %d system(s) and %d space(s). "
+            "That is a lot for one plan each - consider splitting a stage by space "
+            "or by system (see ROADMAP.md 'The greybox block')."
+            % (len(gb_ids), len(named_systems), len(named_spaces)))
+
     done = [s for s in rm["stages"] if s["status"] == "done"]
     ok = not errors
     emit("roadmap", {"ok": ok, "action": "validate", "stages": len(rm["stages"]),
@@ -1003,14 +1831,20 @@ def cmd_roadmap(a) -> int:
                      "core_loop_beats": beats,
                      "placeholders_open": len([p for p in rm["placeholders"]
                                                if not _unfilled(p["placeholder"])]),
+                     "greybox_block": gb_ids, "greybox_last": rm["greybox_last"],
+                     "systems": len(named_systems), "spaces": len(named_spaces),
                      "errors": errors, "warnings": warnings})
 
     print("  end state   " + (rm["end_state"][:100] or "(not set)"))
     print("  progress    %d / %d stages done, current %s"
           % (len(done), len(rm["stages"]), rm["current"] or "?"))
-    for s in rm["stages"]:
-        mark = {"done": "x", "active": ">", "planned": " "}.get(s["status"], "?")
-        print("  [%s] %s %-24s %s" % (mark, s["id"], s["stage"][:24], s["playable"][:60]))
+    print("  greybox     %s   (%d system(s), %d space(s) to prove in grey)"
+          % ("-".join([gb_ids[0], gb_ids[-1]]) if gb_ids else "(none marked)",
+             len(named_systems), len(named_spaces)))
+    for st in rm["stages"]:
+        mark = {"done": "x", "active": ">", "planned": " "}.get(st["status"], "?")
+        print("  [%s] %s %-9s %-22s %s"
+              % (mark, st["id"], st["block"][:9], st["stage"][:22], st["playable"][:52]))
     if a.action == "status":
         return 0
     for w in warnings[:6]:
@@ -1021,8 +1855,11 @@ def cmd_roadmap(a) -> int:
         print("  ... and %d more (the full list is in the GDROADMAP json line)"
               % (len(errors) - 14))
     if ok:
-        print("\n  roadmap valid: every stage stacks forward, the loop is fully covered, "
-              "and every placeholder has a stage that replaces it.")
+        print("")
+        print("  roadmap valid: every stage stacks forward and states its target and")
+        print("  pass conditions; the greybox block covers every system and every")
+        print("  space and ends in a reachable failure state; every Core Loop beat")
+        print("  and every placeholder names the stage that delivers it.")
     else:
         print("\n  Fix ROADMAP.md (see gsd-gd/references/decomposition.md), then re-run.")
     return 0 if ok else 1
@@ -1049,11 +1886,20 @@ def cmd_config(a) -> int:
         emit("config", {"ok": True, "action": "init", "path": str(p)})
         print("  wrote " + str(p))
         return 0
-    emit("config", {"ok": True, "machine": str(CONFIG),
+    emit("config", {"ok": True,
+                    "shipped": str(CONFIG),
+                    "machine": str(MACHINE_CONFIG) if MACHINE_CONFIG.exists() else None,
                     "project": str(p) if p.exists() else None,
-                    "overrides": prov, "effective": eff})
-    print("  machine  " + str(CONFIG))
-    print("  project  " + (str(p) if p.exists() else "(none - `gd config --init` to add one)"))
+                    "overrides": prov, "effective": eff,
+                    "layers": ["shipped defaults", "machine toolchain",
+                               "project overrides", "environment"]})
+    # Three files, lowest precedence first. Printing them in order is the whole
+    # explanation of where a surprising number came from.
+    print("  1 shipped  " + str(CONFIG) + "   (upgraded in place; no paths, no game data)")
+    print("  2 machine  " + (str(MACHINE_CONFIG) if MACHINE_CONFIG.exists()
+                             else "(none - `gd setup`)") + "   (this machine's toolchain)")
+    print("  3 project  " + (str(p) if p.exists() else "(none - `gd config --init` to add one)")
+          + "   (this game's numbers)")
     if prov:
         print("")
         print("  overridden by this project:")
@@ -1295,8 +2141,65 @@ def archive_verdict(d: Path, jid: str, attempt: int, src=None, want_plan=None):
     return str(dest)
 
 
+_GATE_TOOL_RE = re.compile(
+    r"""(?<![\w/\\.-])                       # not mid-token
+        (?:(?:python3?|py)\s+)?               # an optional interpreter
+        (?:\.[/\\])?                          # an optional ./
+        (?:gsd-gd[/\\]bin[/\\])?              # an optional repo-relative dir
+        (gd|gddoc)(?:\.py)?                   # the tool itself
+        (?=\s|$)""",
+    re.X)
+
+
+def resolve_gate_cmd(cmd: str) -> str:
+    """Rewrite a gate command so it runs from any project on any machine.
+
+    Gate lines live in a project's `PLAN.md`, which is that project's contract
+    and is committed to that project's repo. They were written as
+    `python gsd-gd/bin/gd.py check`, which resolves only when the working
+    directory happens to contain the system - i.e. only inside this repo. In
+    every real installation the gate failed with `python: can't open file
+    .../<game>/gsd-gd/bin/gd.py`, so no phase outside the system's own checkout
+    could ever go green.
+
+    Rewriting here rather than at authoring time keeps the contract portable: a
+    plan says `gd check`, and the machine it runs on decides where `gd` is. A
+    baked absolute path would break the moment the project moved machines - or
+    the install did.
+    """
+    def repl(mo):
+        tool = mo.group(1)
+        script = SYS_DIR / "bin" / (tool + ".py")
+        return '"%s" "%s"' % (sys.executable, script)
+    return _GATE_TOOL_RE.sub(repl, cmd)
+
+
 def run_file(d: Path) -> Path:
     return d / "RUN.json"
+
+
+# Locks held by this process, released in main()'s finally so a `die()` cannot
+# leave one behind. (FileLock also breaks a lock older than its timeout, so even
+# a hard kill cannot wedge a phase permanently.)
+_HELD_LOCKS: list = []
+
+
+def acquire_run_lock(d: Path) -> None:
+    """Serialise read-modify-write of RUN.json across concurrent agents.
+
+    `/gd:run` dispatches a wave of jobs in parallel and each records its own
+    result. Without this, two `run record` calls landing together lose one of
+    the two - and a lost `fail` is indistinguishable from a job never attempted,
+    which silently grants an extra turn of the escalation ladder.
+    """
+    lk = FileLock(run_file(d))
+    lk.__enter__()
+    _HELD_LOCKS.append(lk)
+
+
+def release_locks() -> None:
+    while _HELD_LOCKS:
+        _HELD_LOCKS.pop().__exit__(None, None, None)
 
 
 def load_run(d: Path) -> dict:
@@ -1308,12 +2211,19 @@ def load_run(d: Path) -> dict:
 
 def save_run(d: Path, r: dict) -> None:
     r["updated"] = now()
-    run_file(d).write_text(json.dumps(r, indent=2), encoding="utf-8")
+    write_json_atomic(run_file(d), r)
+
+
+# Actions that rewrite RUN.json. `next` and `status` only read it, and taking
+# the lock for those would serialise the very polling that watches a wave run.
+_RUN_MUTATORS = ("init", "start", "record", "gate", "resolve", "block", "complete")
 
 
 def cmd_run(a) -> int:
     d = phase_dir(a.phase)
     act = a.action
+    if act in _RUN_MUTATORS:
+        acquire_run_lock(d)
 
     if act == "init":
         plan = d / "PLAN.md"
@@ -1346,12 +2256,37 @@ def cmd_run(a) -> int:
                     "gd-playtester authors gates (Law 6b). Move the plan to the "
                     "gates job and leave this job only running it."
                     % (jid, j["agent"]))
+        # Law 1, enforced rather than described. Asset work dispatched onto an
+        # unproven loop is the characteristic way an AI-built game dies: a folder
+        # of beautiful rooms with nothing to do in them, discovered far too late
+        # to throw away.
+        gbx = greybox_state()
+        if not gbx["ok_for_art"]:
+            asset_jobs = [jid for jid, j in sorted(parsed["jobs"].items())
+                          if j["agent"] == "gd-modeler"
+                          or re.search(r"\bgd(?:\.py)?\s+asset\b", j.get("gate", ""))
+                          or re.search(r"\bgenerators?/", j.get("touches", ""))]
+            if asset_jobs:
+                problems.append(
+                    "job(s) %s are asset work, but %s (Law 1: the loop before the "
+                    "look). Finish the greybox block first, or move these jobs to a "
+                    "later stage."
+                    % (", ".join(asset_jobs), gbx["reason"]))
         if not parsed["phase_gate"]:
             problems.append("PLAN.md has no `- gate:` lines - the phase has no "
                             "machine-readable definition of done")
         for g in parsed["phase_gate"]:
             if re.search(r"[<>]", g):
                 problems.append("phase gate is still a placeholder: " + g)
+            # Catch an unrunnable gate now, not when the phase is otherwise done.
+            # A gate that cannot start is indistinguishable from a gate that
+            # failed, and it surfaces as a shell error nobody reads as a plan bug.
+            first = (g.strip().split() or [""])[0]
+            if resolve_gate_cmd(g) == g and not shutil.which(first) \
+                    and not Path(first).exists():
+                problems.append(
+                    "phase gate starts with '%s', which is neither a `gd`/`gddoc` "
+                    "command nor anything on PATH: %s" % (first, g))
         if problems and not a.force:
             emit("run", {"ok": False, "action": "init", "phase": d.name,
                          "reason": "PLAN.md is incomplete", "problems": problems})
@@ -1472,11 +2407,15 @@ def cmd_run(a) -> int:
             die("PLAN.md defines no `- gate:` lines - the phase has no definition of done")
         results = []
         for cmd_s in gates:
-            p = subprocess.run(cmd_s, shell=True, cwd=str(WORK), capture_output=True,
+            real = resolve_gate_cmd(cmd_s)
+            p = subprocess.run(real, shell=True, cwd=str(WORK), capture_output=True,
                                text=True, encoding="utf-8", errors="replace", timeout=a.timeout)
             tail = strip_ansi((p.stdout or "") + (p.stderr or ""))[-600:]
-            results.append({"cmd": cmd_s, "ok": p.returncode == 0,
-                            "exit": p.returncode, "tail": tail})
+            row = {"cmd": cmd_s, "ok": p.returncode == 0,
+                   "exit": p.returncode, "tail": tail}
+            if real != cmd_s:
+                row["resolved"] = real
+            results.append(row)
         ok = all(x["ok"] for x in results)
         r["gate_runs"].append({"at": now(), "ok": ok,
                                "source": source_fingerprint(locate_project()),
@@ -1542,7 +2481,9 @@ def cmd_run(a) -> int:
         by_status = {}
         for jid, j in sorted(r["jobs"].items()):
             by_status.setdefault(j["status"], []).append(jid)
+        gbx = greybox_state()
         emit("run", {"ok": True, "action": "status", "phase": d.name,
+                     "greybox": gbx,
                      "run_status": r["status"], "stop_reason": r.get("stop_reason"),
                      "system_armed": armed_sys, "system_now": cur_sys,
                      "system_changed_mid_phase": sys_changed,
@@ -1550,6 +2491,12 @@ def cmd_run(a) -> int:
                      "phase_gate": r.get("phase_gate"),
                      "last_gate": (r.get("gate_runs") or [None])[-1]})
         print("  phase   %s   [%s]" % (d.name, r["status"]))
+        if gbx["block"]:
+            print("  greybox %s of %s stage(s) done%s"
+                  % (len(gbx["done"]), len(gbx["block"]),
+                     "; greybox_passed: " + gbx["passed_flag"]))
+            if not gbx["ok_for_art"]:
+                print("          art work is blocked: " + gbx["reason"])
         _g = (r.get("gate_runs") or [None])[-1]
         if _g and _g.get("ok") and _g.get("source"):
             _now = source_fingerprint(locate_project())
@@ -1726,6 +2673,7 @@ def cmd_asset(a) -> int:
     outdir = Path(a.out).resolve() if a.out else (proj / "assets" / "models")
     outdir.mkdir(parents=True, exist_ok=True)
 
+    write_project_gd(proj)
     ns = argparse.Namespace(script=str(gen),
                             args=["--out", str(outdir)] + list(a.args or []),
                             timeout=a.timeout, verbose=a.verbose)
@@ -2072,6 +3020,17 @@ def cmd_playtest(a) -> int:
             print("  plan ok: " + plan_p.name)
         return 0 if res["ok"] else 1
 
+    # Regenerate the project's compiled-in numbers BEFORE the run, not after.
+    #
+    # `gd_project.gd` claimed in its own header to be generated by `gd palette`
+    # AND `gd playtest`, but playtest never called this - so a project that
+    # overrode `min_fps` or `max_shadow_casting_lights` after `gd init` had the
+    # gate enforcing the new number while `GDLightingRig.enforce_shadows()` and
+    # every `GDProject.budget()` call in game code enforced the old one. The
+    # runtime and the gate disagreeing about the budget is the exact fault this
+    # generated file was added to prevent, and it survived because nothing
+    # compared the two.
+    write_project_gd(proj)
     drift_before = harness_drift(proj)
     harness_info = install_harness(proj)
     # Upgrading the instrument that grades you, mid-job, in silence, is not
@@ -2270,7 +3229,7 @@ def cmd_playtest(a) -> int:
     verdict["runtime_errors"] = runtime_errors
     verdict["budget_fails"] = fails
     verdict["ok"] = bool(verdict.get("passed")) and not fails and not runtime_errors
-    vfile.write_text(json.dumps(verdict, indent=2), encoding="utf-8")
+    write_json_atomic(vfile, verdict)
 
     emit("playtest", verdict)
     print("")
@@ -2443,6 +3402,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="gd", description="GSD-GameDev toolchain CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("setup", help="detect Godot and Blender on this machine and "
+                       "record them (run once, before anything else)")
+    p.add_argument("--godot", help="path to the Godot executable, if autodetection fails")
+    p.add_argument("--blender", help="path to the Blender executable")
+    p.add_argument("--godot-source", help="optional: an engine source checkout, for "
+                   "reading C++ when the class reference is ambiguous")
+    p.add_argument("--show", action="store_true", help="print what is recorded, change nothing")
+    p.add_argument("--force", action="store_true", help="overwrite without commenting")
+    p.add_argument("--no-index", action="store_true", help="skip building the API index")
+    p.set_defaults(fn=cmd_setup)
+
     sub.add_parser("doctor", help="verify the toolchain end to end").set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("init", help="scaffold a game project + .planning artifacts")
@@ -2563,7 +3533,10 @@ def main(argv=None) -> int:
     extra = getattr(a, "args", None)
     if extra and extra[0] == "--":
         a.args = extra[1:]
-    return a.fn(a)
+    try:
+        return a.fn(a)
+    finally:
+        release_locks()
 
 
 if __name__ == "__main__":
