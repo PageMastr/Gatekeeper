@@ -1782,3 +1782,118 @@ project-side. Of the ones that were system faults, the split by who found them:
 Every single `false-pass` — the only class that invalidates work already
 accepted — came from a project running the system in anger. None came from
 inspecting it.
+
+---
+
+# Loop 13 — 2026-09-13 15:28Z · one bad check deleted every check after it
+
+System now `2b1893f8c31f`. All four open findings were `false-pass`, and all
+four were mine.
+
+| game | beat | phase | jobs | next |
+|---|---|---|---|---|
+| Ringfall | build | 02-ring-and-faith | 8, 1 running | `in_flight` |
+| the-last-lamp | build | 02-presence-and-devices | 4, 1 running | `in_flight` |
+| henhouse | greybox | 01 | **9/9** | `phase_gate` |
+| paper-boat | greybox | 01 | 6/6, `greybox_passed: yes` | `phase_gate` (**stale**) |
+
+Two recent fixes visibly working in the field: **paper-boat's gate correctly
+reads `stale`** and tells it to re-run, and Ringfall and the-last-lamp both show
+`harness stale` — which now *passes* the check, because stale is not tampered.
+
+## E.5 + E.7 — the worst fault of the whole exercise
+
+henhouse, and it reproduced on the first attempt:
+
+```
+4 checks declared  ->  1 check reported, passed: TRUE
+```
+
+Both checks that **must fail** vanished silently.
+
+The mechanism, which they diagnosed down to the engine source: every `expr`
+check ended with `ok = bool(res)`, and `bool` has exactly four constructors —
+no-arg, bool, float, int (`doc/classes/bool.xml`). So an `expr` returning a
+String, Array, Dictionary or Vector raised *"Nonexistent 'bool' constructor"*,
+which aborted `_evaluate_checks()` **and took every check after it with it**.
+A 35-check plan came back with one check and a green light.
+
+> the poison pill is not `str()`, it is ANY `expr` check that does not return a
+> number or a bool … `get_node('DebugHUD').wake_line_text` — the obvious way to
+> read a String out of a gate — dies and takes every check in the plan with it.
+
+Worse than loop 12's E.9: an empty verdict looks suspicious, whereas a *partial*
+one looks like a normal run.
+
+**Three independent guards**, because one is not enough for a fault in this
+class:
+
+1. **Never `bool()` an arbitrary Variant.** `expr` now matches on type: bool →
+   itself, int/float → `!= 0`, nil → false, anything else → **fail the check**
+   with the type named and the fix offered (*"compare it explicitly, or use
+   prop_eq / probe_at"*). Truthiness of a String is not what the author meant to
+   assert, so guessing would be its own bug.
+2. **Every declared check gets a pre-seeded row** reading `NOT EVALUATED`,
+   overwritten in place as evaluation proceeds. A check that somehow aborts now
+   leaves an unmistakable hole instead of vanishing.
+3. **The CLI refuses a short verdict** — if the plan declares N checks and the
+   verdict reports fewer, `gd playtest` will not report the result at all.
+
+Verified: all four checks now reported, the poison pill fails with a named type,
+and both must-fail checks correctly fail.
+
+## E.6 — every screenshot ever taken was half resolution
+
+> Every `gd-critic` look pass in phase 01 — including the wave-2 pass whose
+> pixel counts became job objectives — graded half-resolution frames.
+
+`want_shots = bool(plan.get("shots"))` looked for a **top-level** `shots` key.
+Shots are declared per step (`{"shot": "name"}`), and always have been — in the
+schema, in the template, in every plan. So `want_shots` was always false and
+every frame the system has ever produced was rendered at `playtest_resolution`
+(640×360) instead of `shot_resolution` (1280×720).
+
+The critiques were not wrong, they were **measured against the wrong ruler** —
+"an 8 px sliver" at 640×360 is 16 px of the intended frame. And `BUDGET.md`'s
+own line, *"a budget met at 640×360 is not met"*, was being violated by the look
+half of Law 5 for the entire exercise.
+
+Fixed by scanning steps for `shot`/`shot_after`. Verified at the file level, not
+just the config: `01_spawn.png` is now `1280x720`. The resolution is also
+recorded in the verdict, so a critique can never again be silently mis-scaled.
+
+## paper-boat E.5 — my own tool corrupted the contract it maintains
+
+> `gd roadmap done <id>` silently destroys data in every table that keys on a
+> stage id, not just the Stages table.
+
+`gd roadmap done 01` rewrote the **Risk order** table's reason cell to "done",
+because the rewrite ran over every markdown row in the file and matched on the
+first cell. Data loss in a contract, by the tool meant to maintain it.
+
+Now scoped: the rewriter tracks which table it is inside and only touches rows
+in the Stages table. Verified — `| 01 | THAT-THERE-IS-NO-GAME-HERE |` survives,
+the stage row flips to `done`, coverage is untouched, and the roadmap still
+validates.
+
+## The scoreboard
+
+| found by | false-pass | false-fail | friction |
+|---|---|---|---|
+| projects under load | **8** | 3 | 8 |
+| me, sweeping | 2 | 0 | 4 |
+
+Every one of the eight `false-pass` faults — the only class that invalidates
+work already accepted — came from a project running the system under real load.
+The sweeps found configuration and plumbing; the projects found the gates that
+were lying.
+
+## Carried forward
+
+1. **henhouse is at `phase_gate` with 9/9**, and three of its findings were
+   false-passes in the check evaluator — so its earlier green results are worth
+   re-running now that checks cannot vanish.
+2. **Every critic verdict so far was given half-resolution frames.** Worth
+   telling the two games past the greybox, since their look passes informed job
+   objectives.
+3. Nothing has reached an asset stage. Still the least-tested half of the system.

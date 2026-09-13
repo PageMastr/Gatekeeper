@@ -892,9 +892,28 @@ def cmd_roadmap(a) -> int:
         if sid not in ids:
             die("no stage " + sid + " in ROADMAP.md")
         text = path.read_text(encoding="utf-8")
-        # Rewrite that stage's status cell, and advance `current stage`.
+        # Rewrite that stage's status cell ONLY inside the Stages table, and
+        # advance `current stage`.
+        #
+        # This used to run over every markdown row in the file, so any table
+        # keyed on a stage id got its last cell overwritten with "done" -
+        # the Risk order table's reason, a coverage row's stage. Data loss in a
+        # contract, caused by the tool meant to maintain it.
+        in_stages = False
+
         def fix(mo):
-            cells = mo.group(0).strip().strip("|").split("|")
+            nonlocal in_stages
+            row = mo.group(0)
+            cells = row.strip().strip("|").split("|")
+            head = cells[0].strip().lower()
+            if head == "#":                      # the Stages table header
+                in_stages = True
+                return row
+            if head in ("element", "placeholder", "door", "stage", "date"):
+                in_stages = False                # a different table started
+                return row
+            if not in_stages:
+                return row
             if cells[0].strip().lstrip("0") == sid.lstrip("0"):
                 cells[-1] = " done "
                 return "|" + "|".join(cells) + "|"
@@ -2103,7 +2122,16 @@ def cmd_playtest(a) -> int:
             pass
 
     d = cfg()["defaults"]
-    want_shots = bool(plan.get("shots")) and not a.headless
+    # Shots are declared PER STEP (`{"shot": "name"}`), never as a top-level
+    # `shots` key - which is what this used to look for. So `want_shots` was
+    # always false and every screenshot the system has ever taken was rendered
+    # at playtest_resolution (640x360) instead of shot_resolution (1280x720).
+    # Every critic look pass was grading half-resolution frames, and pixel-level
+    # critiques ("an 8 px sliver", "13 px of fox height") were measured against
+    # the wrong ruler. That is the look half of Law 5 quietly mis-calibrated.
+    has_shot_step = any(isinstance(st, dict) and (st.get("shot") or st.get("shot_after"))
+                        for st in plan.get("steps", []))
+    want_shots = (has_shot_step or bool(plan.get("shots"))) and not a.headless
     res = a.resolution or (d["shot_resolution"] if want_shots else d["playtest_resolution"])
 
     # Hard engine-level backstop. If the harness script itself fails to parse,
@@ -2159,6 +2187,13 @@ def cmd_playtest(a) -> int:
     # in the plan, so only unexplained *plan-shaped* names are a mismatch.
     unexplained = {c for c in got_checks - want_checks
                    if c and not re.match(r"^(input_action:|shot:|timeout$|harness$)", c)}
+    declared_n = len([c for c in plan.get("checks", []) if isinstance(c, dict)])
+    reported_n = len([c for c in verdict.get("checks", []) if c.get("kind")])
+    if declared_n and reported_n < declared_n:
+        mismatch.append(
+            "plan declares %d check(s) but the verdict reports only %d - checks "
+            "went missing during evaluation, so this result describes less than "
+            "it appears to" % (declared_n, reported_n))
     if want_checks and unexplained:
         mismatch.append("verdict contains checks not in this plan: %s"
                         % ", ".join(sorted(unexplained)[:6]))
@@ -2178,6 +2213,7 @@ def cmd_playtest(a) -> int:
     # Which grader graded this. A verdict is only as trustworthy as the harness
     # that produced it, and that harness turned out to be mutable.
     verdict["harness_hash"] = harness_info["hash"]
+    verdict["resolution"] = res
     _fp = system_fingerprint()
     verdict["system"] = {"version": _fp["version"], "hash": _fp["hash"]}
     if harness_upgraded:

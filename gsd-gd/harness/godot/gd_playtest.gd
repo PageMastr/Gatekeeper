@@ -328,7 +328,19 @@ func _process(delta: float) -> void:
 # checks
 # --------------------------------------------------------------------------- #
 func _evaluate_checks() -> void:
-	for c_v in plan.get("checks", []):
+	# Pre-seed a row per declared check, so a check that somehow aborts
+	# evaluation leaves an unmistakable hole rather than vanishing. Guard 1
+	# should make this unreachable; it is here because the failure it prevents
+	# is a silent green light on work that was never checked.
+	var declared: Array = plan.get("checks", [])
+	for i in declared.size():
+		var dc: Dictionary = declared[i] if typeof(declared[i]) == TYPE_DICTIONARY else {}
+		checks.append({"name": str(dc.get("name", dc.get("kind", "check_%d" % i))),
+				"ok": false, "kind": str(dc.get("kind", "expr")),
+				"detail": "NOT EVALUATED - evaluation stopped before reaching this check"})
+	var _slot := checks.size() - declared.size()
+
+	for c_v in declared:
 		var c: Dictionary = c_v
 		var check_name := str(c.get("name", c.get("kind", "check")))
 		var kind := str(c.get("kind", "expr"))
@@ -479,11 +491,36 @@ func _evaluate_checks() -> void:
 						detail = "execute failed on `%s` | base=%s | %s" % [
 								src, base_desc, e.get_error_text()]
 					else:
-						ok = bool(res)
-						detail = "%s -> %s" % [src, res]
+						# NEVER `bool(res)` on an arbitrary Variant. `bool` has four
+						# constructors - no-arg, bool, float, int - so a String,
+						# Array, Dictionary or Vector result raised
+						# "Nonexistent 'bool' constructor", which aborted
+						# _evaluate_checks() and silently DELETED every check after
+						# this one while the verdict still read passed: true. A
+						# 35-check plan came back with one check and a green light.
+						match typeof(res):
+							TYPE_BOOL:
+								ok = res
+								detail = "%s -> %s" % [src, res]
+							TYPE_INT, TYPE_FLOAT:
+								ok = float(res) != 0.0
+								detail = "%s -> %s" % [src, res]
+							TYPE_NIL:
+								ok = false
+								detail = "%s -> <null>" % src
+							_:
+								# Ambiguous on purpose: truthiness of a String is
+								# not what the author meant to assert.
+								ok = false
+								detail = ("`%s` returned %s, which is not a truth "
+										+ "value. Compare it explicitly (`%s == ...`) "
+										+ "or use prop_eq / probe_at.") % [
+										src, type_string(typeof(res)), src]
 			_:
 				detail = "unknown check kind '%s'" % kind
-		checks.append({"name": check_name, "ok": ok, "detail": detail, "kind": kind})
+		# Overwrite this check's pre-seeded row in place.
+		checks[_slot] = {"name": check_name, "ok": ok, "detail": detail, "kind": kind}
+		_slot += 1
 
 
 func _perf() -> Dictionary:
