@@ -3,8 +3,9 @@
 ## Before anything
 
 You need **Python 3.10+**, **Godot 4.4+** (an editor build, not an export
-template), **Blender 4.0+**, **git**, and
-[Claude Code](https://claude.com/claude-code).
+template), **Blender 4.0+**, **git**, and either
+[Claude Code](https://claude.com/claude-code) or
+[Codex](https://developers.openai.com/codex) — or both.
 
 A Godot release download from [godotengine.org](https://godotengine.org) is
 fine — no source checkout needed.
@@ -17,27 +18,36 @@ cd Gatekeeper
 python install.py
 ```
 
-That copies the system into `~/.claude/` and runs `gd setup`, which searches
-your machine for Godot and Blender, verifies each by running it, and asks only
-for what it cannot find. If autodetection misses:
+That installs for whichever front-ends you have — Claude Code, Codex, or both —
+and runs `gd setup`, which searches your machine for Godot and Blender, verifies
+each by running it, and asks only for what it cannot find. If autodetection
+misses:
 
 ```bash
 gd setup --godot <path-to-godot> --blender <path-to-blender>
 ```
 
 Your engine paths go to `~/.claude/gatekeeper.machine.json`, which no upgrade
-ever touches. Nothing else is machine-specific.
+ever touches, and which both front-ends read. Nothing else is machine-specific.
 
-Restart Claude Code so it picks up the new commands.
+Restart your CLI so it picks up the new commands.
 
 ## Then, per game
 
 ```
 cd wherever-you-want-the-game
-claude
+
+claude                                                       # Claude Code
 /gd:new   a snowbound cabin at night, one fire, something out there
 /gd:run
+
+codex                                                        # Codex
+$gd-new   a snowbound cabin at night, one fire, something out there
+$gd-run
 ```
+
+The two are the same system: the same gates, the same harness, the same budget.
+Only the way you type a command and the names of the models differ.
 
 `.planning/` and `game/` are created in **that directory**. One install, as many
 separate games as you like, and nothing one game sets can reach another. `gd
@@ -173,7 +183,9 @@ thing to do, not a menu.
 
 | Symptom | Fix |
 |---|---|
-| `/gd:*` missing in a new session | `python install.py` from the repo, then restart Claude Code |
+| `/gd:*` or `$gd-*` missing in a new session | `python install.py` from the repo, then restart the CLI. `python install.py --dry-run` lists which front-ends it detected |
+| Commands appear in one CLI but not the other | The installer only saw one. `python install.py --host both` |
+| Wrong models being dispatched | `gd config` prints the active host; `GD_HOST=codex` or `GD_HOST=claude` pins it for a shell |
 | "no Godot path is configured" | `gd setup` — or `gd setup --godot <path> --blender <path>` if autodetection misses |
 | Godot or Blender moved | `gd setup --force` |
 | `gd setup` found a template build | Point it at the **editor** build: `gd setup --godot <path-to-editor-binary>` |

@@ -1412,27 +1412,100 @@ def models_cfg() -> dict:
     return cfg().get("models") or {}
 
 
-def model_ladder() -> list:
-    return models_cfg().get("ladder") or _FALLBACK_LADDER
+# The front-ends this system can be driven from. The whole system is
+# host-neutral below this line: the harness, the generators, the budget and
+# every gate are about Godot and Blender, not about what is holding the
+# keyboard. Only three things differ - what a model is called, where the
+# commands and agents get installed, and how a job is dispatched.
+KNOWN_HOSTS = ("claude", "codex")
+
+
+def detect_host() -> str:
+    """Which front-end this process was launched from, by environment.
+
+    Both CLIs mark their environment. Claude Code sets CLAUDECODE plus a family
+    of CLAUDE_CODE_*; Codex sets CODEX_*. Checking the environment beats
+    checking which directories exist, because a machine with both installed
+    would otherwise answer the same way in both sessions.
+    """
+    if os.environ.get("CLAUDECODE") or any(k.startswith("CLAUDE_CODE_")
+                                           for k in os.environ):
+        return "claude"
+    if any(k.startswith("CODEX_") for k in os.environ):
+        return "codex"
+    return ""
+
+
+def host_name() -> str:
+    """The active host: GD_HOST, else config `models.host`, else detected.
+
+    Unresolvable falls back to claude rather than erroring - a wrong host name
+    only mis-routes a model, and stopping the run over it would be worse than
+    being slightly wrong about which tier to start on.
+    """
+    h = (os.environ.get("GD_HOST") or "").strip().lower()
+    if h in KNOWN_HOSTS:
+        return h
+    cfgd = str(models_cfg().get("host") or "auto").strip().lower()
+    if cfgd in KNOWN_HOSTS:
+        return cfgd
+    return detect_host() or "claude"
+
+
+def host_cfg(host: str = "") -> dict:
+    """The active host's block, or {} when the config predates hosts.
+
+    An older config.json has no `hosts` key at all. That is not an error: the
+    top-level `ladder`/`agents` are Claude's, so an empty block resolves to
+    exactly the behaviour that config already had.
+    """
+    hosts = models_cfg().get("hosts") or {}
+    return hosts.get(host or host_name()) or {}
+
+
+def model_ladder(host: str = "") -> list:
+    return (host_cfg(host).get("ladder")
+            or models_cfg().get("ladder") or _FALLBACK_LADDER)
 
 
 def attempts_per_tier() -> int:
+    # Host-neutral on purpose: three attempts before climbing is a statement
+    # about when to stop trying, not about any particular model.
     return int(models_cfg().get("attempts_per_tier") or _FALLBACK_ATTEMPTS)
 
 
-def agent_model(agent: str) -> str:
-    """Starting model for an agent. Accepts either {"model": x, "why": ...} or a
-    bare string in config, so the file stays easy to hand-edit."""
-    entry = (models_cfg().get("agents") or {}).get(agent)
+def _model_of(entry) -> str:
+    """A routing entry is {"model": x, "why": ...} or a bare model string."""
     if isinstance(entry, dict):
-        m = entry.get("model")
-    elif isinstance(entry, str):
-        m = entry
-    else:
-        m = None
+        return entry.get("model") or ""
+    return entry if isinstance(entry, str) else ""
+
+
+def agent_why(agent: str) -> str:
+    """Why a role sits where it does. Host-neutral, so it lives once.
+
+    A host entry may still carry its own `why` when the reasoning genuinely
+    differs; otherwise the shared one is the answer for every host.
+    """
+    entry = (host_cfg().get("agents") or {}).get(agent)
+    if isinstance(entry, dict) and entry.get("why"):
+        return entry["why"]
+    shared = (models_cfg().get("agents") or {}).get(agent)
+    return shared.get("why", "") if isinstance(shared, dict) else ""
+
+
+def agent_model(agent: str, host: str = "") -> str:
+    """Starting model for an agent, on the active host.
+
+    The host's own table wins; without one, the top-level table applies, which
+    is what makes a config written before Codex existed still correct.
+    """
+    m = _model_of((host_cfg(host).get("agents") or {}).get(agent))
+    if not m:
+        m = _model_of((models_cfg().get("agents") or {}).get(agent))
     if not m:
         # Unknown agent: start one tier below the top rather than guessing high.
-        ladder = model_ladder()
+        ladder = model_ladder(host)
         m = ladder[max(len(ladder) - 2, 0)]
     return m
 
@@ -1886,15 +1959,24 @@ def cmd_config(a) -> int:
         emit("config", {"ok": True, "action": "init", "path": str(p)})
         print("  wrote " + str(p))
         return 0
+    host = host_name()
     emit("config", {"ok": True,
                     "shipped": str(CONFIG),
                     "machine": str(MACHINE_CONFIG) if MACHINE_CONFIG.exists() else None,
                     "project": str(p) if p.exists() else None,
+                    "host": host, "host_detected": detect_host(),
+                    "host_source": ("GD_HOST" if os.environ.get("GD_HOST")
+                                    else "config" if str(models_cfg().get("host")
+                                                         or "auto") != "auto"
+                                    else "detected"),
+                    "ladder": model_ladder(host),
                     "overrides": prov, "effective": eff,
                     "layers": ["shipped defaults", "machine toolchain",
                                "project overrides", "environment"]})
     # Three files, lowest precedence first. Printing them in order is the whole
     # explanation of where a surprising number came from.
+    print("  host       %s   (model routing only; everything else is host-neutral)"
+          % host)
     print("  1 shipped  " + str(CONFIG) + "   (upgraded in place; no paths, no game data)")
     print("  2 machine  " + (str(MACHINE_CONFIG) if MACHINE_CONFIG.exists()
                              else "(none - `gd setup`)") + "   (this machine's toolchain)")
@@ -1919,65 +2001,101 @@ def cmd_config(a) -> int:
 
 
 def cmd_models(a) -> int:
-    """Show the routing table, and flag drift.
+    """Show the routing table for a host, and flag drift.
 
-    Two places name a model: `models.agents` in config.json (what `gd run`
-    dispatches and escalates with) and the `model:` frontmatter of each
-    .claude/agents/*.md (what Claude Code uses when an agent is spawned by name
-    with no override). They must agree, and nothing would otherwise tell you
-    when they stop agreeing.
+    On Claude two places name a model: `models.agents` in config.json (what
+    `gd run` dispatches and escalates with) and the `model:` frontmatter of
+    each .claude/agents/*.md (what Claude Code uses when an agent is spawned by
+    name with no override). They must agree, and nothing would otherwise tell
+    you when they stop agreeing.
+
+    On Codex there is only one place. A Codex agent is a skill, and a skill
+    cannot pin a model, so `gd run` passes `-m` at dispatch and there is no
+    second surface to drift against. Reporting "no agent file" for all ten
+    would be noise dressed as a warning, so hosts declare their agent format
+    and only `claude-agents` is drift-checked.
     """
-    # Frontmatter in .claude/agents/*.md is machine-global, so it can only be
-    # compared against the MACHINE config. A project override is not drift - it
-    # is the feature - so the two are reported separately.
+    host = (getattr(a, "host", "") or "").strip().lower() or host_name()
+    if host == "all":
+        rc = 0
+        for h in KNOWN_HOSTS:
+            print("\n== %s ==" % h)
+            a.host = h
+            rc |= cmd_models(a)
+        return rc
+    if host not in KNOWN_HOSTS:
+        die("unknown host %r - known hosts: %s" % (host, ", ".join(KNOWN_HOSTS)))
+
+    hcfg = host_cfg(host)
+    fmt = hcfg.get("agent_format") or "claude-agents"
+    # Frontmatter is machine-global, so it can only be compared against the
+    # MACHINE config. A project override is not drift - it is the feature - so
+    # the two are reported separately.
     machine = json.loads(CONFIG.read_text(encoding="utf-8")).get("models") or {}
-    mc = models_cfg()
-    agents_cfg = machine.get("agents") or {}
+    m_hosts = (machine.get("hosts") or {}).get(host) or {}
+    agents_cfg = m_hosts.get("agents") or machine.get("agents") or {}
     proj_over = {k.split(".", 2)[2]: v for k, v in config_provenance().items()
-                 if k.startswith("models.agents.")}
+                 if k.startswith("models.agents.")
+                 or k.startswith("models.hosts.%s.agents." % host)}
     rows, drift = [], []
     # Agent files may be project-scoped or installed at user scope; check both.
     agent_dirs = [WORK / ".claude" / "agents",
                   Path.home() / ".claude" / "agents"]
     agent_dir = next((d for d in agent_dirs if d.is_dir()), agent_dirs[0])
-    for name in sorted(set(agents_cfg) | {p.stem for p in agent_dir.glob("gd-*.md")}):
-        entry_m = agents_cfg.get(name)
-        want = (entry_m.get("model") if isinstance(entry_m, dict)
-                else entry_m if isinstance(entry_m, str) else None)
-        entry = agents_cfg.get(name)
-        why = entry.get("why", "") if isinstance(entry, dict) else ""
-        fm = None
-        f = agent_dir / (name + ".md")
-        if f.exists():
-            m = re.search(r"^model:\s*(\S+)\s*$", f.read_text(encoding="utf-8"), re.M)
-            fm = m.group(1) if m else None
-        eff = agent_model(name) if name in (mc.get("agents") or {}) else want
+    known = set(agents_cfg) | set(machine.get("agents") or {})
+    if fmt == "claude-agents":
+        known |= {p.stem for p in agent_dir.glob("gd-*.md")}
+    for name in sorted(known):
+        want = _model_of(agents_cfg.get(name)) or None
+        why = agent_why(name)
+        fm, defined = None, False
+        if fmt == "claude-agents":
+            f = agent_dir / (name + ".md")
+            defined = f.exists()
+            if defined:
+                m = re.search(r"^model:\s*(\S+)\s*$",
+                              f.read_text(encoding="utf-8"), re.M)
+                fm = m.group(1) if m else None
+        eff = agent_model(name, host)
         rows.append({"agent": name, "machine": want, "effective": eff,
-                     "frontmatter": fm, "why": why, "defined": f.exists(),
-                     "overridden": eff != want})
+                     "frontmatter": fm, "why": why, "defined": defined,
+                     "overridden": bool(want) and eff != want})
+        if fmt != "claude-agents":
+            continue
         if want and fm and want != fm:
             drift.append("%s: config=%s frontmatter=%s" % (name, want, fm))
-        if want and not f.exists():
+        if want and not defined:
             drift.append("%s: in config but no .claude/agents/%s.md" % (name, name))
         if fm and not want:
             drift.append("%s: agent file exists but no config entry" % name)
 
-    emit("models", {"ok": not drift, "ladder": model_ladder(),
+    emit("models", {"ok": not drift, "host": host, "agent_format": fmt,
+                    "ladder": model_ladder(host),
                     "attempts_per_tier": attempts_per_tier(),
+                    "dispatch": hcfg.get("dispatch", ""),
                     "agents": rows, "drift": drift,
                     "project_overrides": proj_over})
-    print("  ladder   " + " -> ".join(model_ladder())
+    print("  host     %s%s" % (host, "" if getattr(a, "host", "") else "   (detected)"))
+    print("  ladder   " + " -> ".join(model_ladder(host))
           + "   (%d attempts per tier before escalating)" % attempts_per_tier())
+    if hcfg.get("dispatch"):
+        print("  dispatch " + hcfg["dispatch"])
     print("")
     for r in rows:
-        mark = " " if (not r["machine"] or r["machine"] == r["frontmatter"]) else "!"
+        mark = " " if (fmt != "claude-agents" or not r["machine"]
+                       or r["machine"] == r["frontmatter"]) else "!"
         model = r["effective"] or "-"
         if r["overridden"]:
             model += "*"
-        print("%s %-18s %-8s %s" % (mark, r["agent"], model, r["why"][:94]))
+        print("%s %-18s %-14s %s" % (mark, r["agent"], model, r["why"][:88]))
     if proj_over:
         print("")
         print("  * = overridden by this project (.planning/config.json)")
+    if fmt != "claude-agents":
+        print("")
+        print("  %s has no per-agent model surface, so there is nothing to drift"
+              % host)
+        print("  against - the table above is the whole routing decision.")
     if drift:
         print("\n  DRIFT - config and agent frontmatter disagree:")
         for d in drift:
@@ -2300,6 +2418,11 @@ def cmd_run(a) -> int:
         r = {"phase": d.name, "created": now(), "updated": now(),
              "status": "running", "stop_reason": None,
              "system": {"version": _sf["version"], "hash": _sf["hash"]},
+             # The host is recorded for the same reason the toolchain is: a job
+             # dispatched at `opus` and a job dispatched at `gpt-6-astra` were
+             # not graded by the same thing, and a phase resumed under the other
+             # front-end would otherwise carry a ladder none of its models are on.
+             "host": host_name(),
              "model_ladder": model_ladder(), "attempts_per_tier": attempts_per_tier(),
              "waves_completed": [], "gate_runs": [], **parsed}
         save_run(d, r)
@@ -2367,7 +2490,12 @@ def cmd_run(a) -> int:
             # Escalation ladder from config: N attempts at the current tier,
             # then climb. At the top tier, a full tier of failures stops the run -
             # the problem is the job or the gate, not the model.
-            ladder = model_ladder()
+            #
+            # The ladder recorded at `run init` wins over the live one. A phase
+            # armed under one front-end and resumed under the other would
+            # otherwise escalate a job onto a ladder its current model is not on,
+            # and the climb would silently restart from the wrong rung.
+            ladder = r.get("model_ladder") or model_ladder()
             per_tier = attempts_per_tier()
             if j["attempts_at_tier"] >= per_tier:
                 cur = j["model"] if j["model"] in ladder else ladder[-2]
@@ -2509,6 +2637,14 @@ def cmd_run(a) -> int:
             print("  SYSTEM  changed mid-phase: armed on %s, now %s" % (armed_sys, cur_sys))
             print("          Jobs graded before the change used a different toolchain."
                   " `gd version` for what moved.")
+        armed_host = r.get("host")
+        if armed_host and armed_host != host_name():
+            print("  HOST    changed mid-phase: armed under %s, now %s"
+                  % (armed_host, host_name()))
+            print("          Jobs already recorded ran on the %s ladder; the phase"
+                  " keeps it." % armed_host)
+            print("          `GD_HOST=%s` to go back, or finish the phase here and"
+                  " start the next one fresh." % armed_host)
         if r.get("stop_reason"):
             print("  stop    " + r["stop_reason"])
         for jid, j in sorted(r["jobs"].items()):
@@ -3483,8 +3619,11 @@ def main(argv=None) -> int:
     sub.add_parser("now", help="current UTC timestamp - never type one from memory"
                    ).set_defaults(fn=cmd_now)
 
-    sub.add_parser("models", help="show model routing, and flag config/frontmatter drift"
-                   ).set_defaults(fn=cmd_models)
+    p = sub.add_parser("models",
+                       help="show model routing, and flag config/frontmatter drift")
+    p.add_argument("--host", default="",
+                   help="claude, codex, or all (default: the detected host)")
+    p.set_defaults(fn=cmd_models)
 
     p = sub.add_parser("run", help="phase driver state machine (used by /gd:run)")
     p.add_argument("action", choices=["init", "next", "start", "record", "gate",

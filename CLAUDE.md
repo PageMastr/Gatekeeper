@@ -8,9 +8,13 @@ Read this file, then `gatekeeper/references/laws.md`.
 
 ## Installing / two roots
 
-`python install.py` installs this at user scope (`~/.claude/`) so `/gd:*` works
-in any session, and ends by running `gd setup` to find Godot and Blender on this
-machine. **`SYS_DIR` and `WORK` are separate roots**: the system lives where it
+`python install.py` installs this at user scope so the commands work in any
+session, and ends by running `gd setup` to find Godot and Blender on this
+machine. It installs for **whichever front-ends are present** — Claude Code
+(`~/.claude/`, commands as `/gd:*`) and Codex (`~/.codex/skills/`, the same
+commands as `$gd-*`); `--host claude|codex|both` picks explicitly. The system
+payload itself is installed **once** and shared, so one machine has one
+`gd version` fingerprint no matter how many front-ends drive it. **`SYS_DIR` and `WORK` are separate roots**: the system lives where it
 is installed, while `.planning/` and `game/` are created in the directory you are
 working in. Conflating them would make every game on the machine share one Color
 Bible. `gd doctor` prints both, and `gd init` refuses to scaffold inside either
@@ -24,7 +28,7 @@ this one. Three config layers, lowest precedence first:
 | # | file | holds | lifetime |
 |---|---|---|---|
 | 1 | `gatekeeper/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths** | replaced on every upgrade |
-| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by install |
+| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by install; one file, shared by every front-end (`GD_MACHINE_CONFIG` moves it) |
 | 3 | `<game>/.planning/config.json` | that game's numbers | lives in the game's own repo |
 
 Then `GD_GODOT` / `GD_BLENDER` / `GD_GODOT_SOURCE` on top, per shell.
@@ -43,7 +47,11 @@ with none, `gddoc index` has the engine generate its own class reference with
 ## What this repo is
 
 - `gatekeeper/` — the system. CLI, Blender library, Godot harness, templates, doctrine.
-- `.claude/` — commands (`/gd:*`), agent definitions, skills.
+- `.claude/` — commands (`/gd:*`), agent definitions, skills. **This is the only
+  place a command or an agent is written.** The Codex front-end is *rendered*
+  from these same files at install time (`/gd:x` → `$gd-x`, `gd-y` →
+  `$gd-agent-y`), because two hand-maintained copies of the same doctrine is how
+  they drift, and doctrine that drifts silently is worse than doctrine missing.
 - `.planning/` — the contracts for the game currently being built:
   `CONTEXT.md` (settled decisions, systems, the map), `COLOR_BIBLE.md` (the
   palette), `CORE_LOOP.md` (what the player does), **`ROADMAP.md`** (the whole
@@ -72,7 +80,7 @@ python gatekeeper/bin/gd.py <verb>
 | `config [--init]` | effective config across all three layers |
 | `version [--record]` | fingerprint of the installed system, by component |
 | `harness [--check]` | (re)install the harness, or detect drift in the grader |
-| `models` | show model routing per agent + flag config/frontmatter drift |
+| `models [--host claude\|codex\|all]` | show model routing per agent for a front-end + flag config/frontmatter drift |
 | `run init\|next\|record\|gate\|resolve\|status` | the phase driver's state machine |
 | `check [files]` | **GDScript gate** — engine type-check + Godot-3-ism scan |
 | `blender <script.py>` | run a Blender script headless with `gdblend` on path |
@@ -108,6 +116,11 @@ log noise.
 ```
 
 After the first stage the loop is `/gd:plan <next stage>` then `/gd:run`.
+
+**Under Codex the same commands are skills:** `$gd-new`, `$gd-run`,
+`$gd-plan`, and the agents are `$gd-agent-mechanics`, `$gd-agent-critic` and so
+on. Everything below this line is identical on both — the laws, the gates, the
+harness and the numbers are about Godot and Blender, not about the front-end.
 
 `/gd:new` owns first-run setup only (toolchain check, API index, git, naming, and
 a guard against clobbering existing contracts) and then invokes `/gd:plan` for
@@ -163,7 +176,10 @@ These are enforced by tooling, not just convention. Do not work around them.
    starting model is stored with the reason it was chosen, and `gd models` flags
    drift against the agent frontmatter. `gd run` owns the escalation ladder
    (3 attempts per tier, then climb) — no agent may grant itself a fourth
-   attempt or pick its own model.
+   attempt or pick its own model. **The role and its reason are host-neutral;
+   only the tier names differ** (`models.hosts.<host>`), so a routing decision
+   is made once and `gd models --host all` shows what each front-end resolves
+   it to.
 11. **No GDScript from memory.** Most training data is Godot 3; Godot 4 renamed,
    moved and deleted much of the API, so recalled GDScript looks right and fails
    at runtime. Before writing engine code, look every type up in the local
@@ -216,8 +232,9 @@ records it, `gd init` pins it as the project's baseline, and `gd run status`
 warns when the system has changed mid-phase — because jobs graded before a
 change were graded by a different toolchain.
 
-**Never edit the installed system.** `~/.claude/gatekeeper/` is shared by every
-game on this machine and is not under version control. Editing the harness,
+**Never edit the installed system.** The installed `gatekeeper/` (under
+`~/.claude/`, or `~/.codex/` on a Codex-only machine — `gd doctor` prints which)
+is shared by every game on this machine and is not under version control. Editing the harness,
 templates or CLI there changes how every other project is graded, with no
 record. Observed: one game wrote two of its own lighting presets into the shared
 rig, and `install_harness()` then copied them into three unrelated games — two

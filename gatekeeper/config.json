@@ -66,7 +66,40 @@
         "why": "documentation and learnings extraction - reads a lot, writes prose, no engine judgement"
       }
     },
-    "_haiku_note": "Nothing defaults to haiku. It sits on the ladder as a floor for future cheap roles; no current agent's job is mechanical enough to justify it, and a wrong answer from a gate-facing agent costs more than the tier saves."
+    "_haiku_note": "Nothing defaults to haiku. It sits on the ladder as a floor for future cheap roles; no current agent's job is mechanical enough to justify it, and a wrong answer from a gate-facing agent costs more than the tier saves.",
+    "host": "auto",
+    "_host_doc": "Which assistant front-end this install is driven from: 'claude', 'codex', or 'auto' to detect from the environment. GD_HOST overrides it per shell. The ladder and the per-agent model above are Claude's; a host entry below replaces both when that host is active. Everything else in this file - budget, playtest defaults, the snap grid - is host-neutral, because it describes the game and the engine, not the thing driving them.",
+    "hosts": {
+      "claude": {
+        "_doc": "Claude Code. Agents are files under .claude/agents/ whose `model:` frontmatter must agree with the table above; `gd models` checks that. Inherits `ladder` and `agents` from the parent block - they are not repeated here, so there is exactly one place to change a Claude routing decision.",
+        "agent_format": "claude-agents",
+        "agent_dir": "agents",
+        "command_dir": "commands/gd",
+        "dispatch": "Task tool, subagent_type: <agent>"
+      },
+      "codex": {
+        "_doc": "Codex CLI. Codex has no per-agent model surface - agents are skills, and a skill cannot pin a model - so the routing below is what `gd run` dispatches with (`codex exec -m <model>`), and there is no frontmatter for `gd models` to drift against. The roles and their reasons are the same as Claude's; only the tier names differ.",
+        "agent_format": "codex-skills",
+        "agent_dir": "skills",
+        "command_dir": "skills",
+        "dispatch": "codex exec -m <model>",
+        "_ladder_why": "Four rungs, mapped to the same shape as the Claude ladder: a cheap floor for mechanical roles, two middle tiers, and the most capable model reserved for the work where the quality gap is visible to the player. gpt-5.5 is deliberately absent - a previous-generation model on a gate-facing role costs more in re-runs than the tier saves.",
+        "ladder": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"],
+        "agents": {
+          "gd-planner": "gpt-6-astra",
+          "gd-art-director": "gpt-6-astra",
+          "gd-critic": "gpt-6-astra",
+          "gd-modeler": "gpt-6-astra",
+          "gd-mechanics": "gpt-5.6-terra",
+          "gd-rigger": "gpt-5.6-terra",
+          "gd-perf": "gpt-5.6-terra",
+          "gd-playtester": "gpt-5.6-luna",
+          "gd-researcher": "gpt-5.6-luna",
+          "gd-scribe": "gpt-5.6-luna"
+        },
+        "_agents_note": "Bare strings, not {model, why} objects: the *reason* a role sits where it does is host-neutral and lives once in `models.agents` above. Only the model name differs per host. The three engine roles start at `terra` rather than `sol` because they have two rungs of headroom above them and are the highest-volume roles on the board; `gd run` escalates them if a gate keeps failing. First-pass mapping - tune it against real escalation counts, and record the reason here when you do."
+      }
+    }
   },
   "defaults": {
     "playtest_resolution": "640x360",

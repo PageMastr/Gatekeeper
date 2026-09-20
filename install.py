@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Install Gatekeeper at user scope, so /gd:* works in any Claude Code session.
+"""Install Gatekeeper at user scope, for Claude Code and/or Codex.
 
-    python install.py              # copy into ~/.claude
-    python install.py --link       # junction/symlink gatekeeper/ instead of copying
-    python install.py --dry-run    # show what would happen, change nothing
-    python install.py --no-setup   # skip the toolchain wizard
-    python install.py --uninstall  # remove it again
+    python install.py                # whichever front-ends are present
+    python install.py --host codex   # just Codex
+    python install.py --host both    # both, even if one is not installed yet
+    python install.py --link         # junction/symlink gatekeeper/ instead of copying
+    python install.py --dry-run      # show what would happen, change nothing
+    python install.py --no-setup     # skip the toolchain wizard
+    python install.py --uninstall    # remove it again
+
+The system payload is installed ONCE and shared by every front-end: two copies
+would mean two `gd version` fingerprints on one machine, and a verdict could
+then name a toolchain the other host had already moved past.
 
 What it installs:
 
@@ -44,6 +50,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent
 HOME_CLAUDE = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
+HOME_CODEX = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex"))
 
 SYS_NAME = "gatekeeper"
 MACHINE_CONFIG = HOME_CLAUDE / "gatekeeper.machine.json"
@@ -52,6 +59,29 @@ PAYLOAD = [
     ("agents", SRC / ".claude" / "agents"),
     ("skills/godot-api", SRC / ".claude" / "skills" / "godot-api"),
 ]
+
+# ---------------------------------------------------------------------------
+# Codex front-end.
+#
+# `.claude/` stays the only place a command or an agent is *written*. Codex
+# gets the same files rendered into its own shape at install time, because two
+# hand-maintained copies of the same doctrine is how they drift - and doctrine
+# that drifts silently is worse than doctrine that is missing.
+#
+# Two shapes differ, so two names differ:
+#   command  X.md      ->  skills/gd-X          typed as  $gd-X
+#   agent    gd-Y.md   ->  skills/gd-agent-Y    dispatched, rarely typed
+# The qualifier is on the agents because `perf` exists as both a command and an
+# agent, and the user types commands.
+CODEX_CMD_PREFIX = "gd-"
+CODEX_AGENT_PREFIX = "gd-agent-"
+
+
+def codex_skill_name(stem: str, kind: str) -> str:
+    if kind == "agent":
+        return CODEX_AGENT_PREFIX + stem[3:] if stem.startswith("gd-") else \
+            CODEX_AGENT_PREFIX + stem
+    return CODEX_CMD_PREFIX + stem
 # Only the two entry points. The engine binaries are launched by gd.py as
 # subprocesses, so there is nothing machine-specific to allow here - which is
 # what lets one settings.json work on every machine.
@@ -83,6 +113,112 @@ def rewrite(text: str, sys_dir: Path) -> str:
     text = text.replace("`gatekeeper/", "`%s/" % p)
     text = text.replace("(gatekeeper/", "(%s/" % p)
     return text
+
+
+def split_frontmatter(text: str) -> tuple:
+    """(dict-ish frontmatter, body). Values stay strings; nothing here needs YAML."""
+    if not text.startswith("---"):
+        return {}, text
+    end = text.find("\n---", 3)
+    if end < 0:
+        return {}, text
+    head, body = text[3:end], text[end + 4:].lstrip("\n")
+    fm, key = {}, None
+    for line in head.splitlines():
+        if not line.strip():
+            continue
+        m = re.match(r"^([A-Za-z0-9_-]+):\s*(.*)$", line)
+        if m:
+            key = m.group(1)
+            fm[key] = m.group(2).strip()
+        elif key:                       # a folded continuation line
+            fm[key] += " " + line.strip()
+    return fm, body
+
+
+# What a Codex session needs to know that a Claude session does not. Injected
+# once per skill rather than rewritten through the doctrine text: the laws are
+# quoted verbatim in a dozen places, and a regex confident enough to rewrite
+# them is a regex confident enough to corrupt them.
+CODEX_NOTE = """\
+> **Host note — Codex.** This system is written host-neutral and installed for
+> both Codex and Claude Code. Where the text below says:
+>
+> - `/gd:<name>` — invoke `$gd-<name>` instead.
+> - a `gd-<role>` agent (gd-mechanics, gd-critic, …) — that is the skill
+>   `$gd-agent-<role>`. Its starting model and the escalation ladder come from
+>   `gd models --host codex`, never from your own judgement (Law 10).
+> - "the Task tool" / "spawn a subagent" — start a **fresh `codex exec` session**
+>   with the job file and its gate, at the model `gd run next` names:
+>   `codex exec -m <model> "<job prompt>"`. One job, one fresh session (Law 2) is
+>   the point of this, and it holds identically here.
+> - "AskUserQuestion" — just ask, in the conversation, and wait.
+> - `$ARGUMENTS` — whatever you typed after the skill name.
+>
+> Everything else — the gates, the harness, the budget, the Color Bible — is the
+> same system and the same numbers. `gd` is the single source of truth on both
+> hosts.
+"""
+
+
+def render_codex_skill(text: str, stem: str, kind: str, sys_dir: Path) -> str:
+    """One Claude command or agent, as a Codex SKILL.md."""
+    fm, body = split_frontmatter(text)
+    name = codex_skill_name(stem, kind)
+    desc = fm.get("description", "").strip()
+    if kind == "agent" and fm.get("model"):
+        # The Claude frontmatter model is Claude's. Saying so beats deleting it
+        # silently and letting a reader assume Codex inherits it.
+        body = ("*(Routing for this role on Codex comes from "
+                "`gd models --host codex`, not from any frontmatter.)*\n\n") + body
+    out = ["---", "name: " + name, "description: " + desc, "---", ""]
+    out.append(CODEX_NOTE)
+    out.append("")
+    out.append(body)
+    text = "\n".join(out)
+    # Cross-references between our own commands, so `$gd-run` resolves.
+    text = re.sub(r"/gd:([a-z]+)", lambda m: "$gd-" + m.group(1), text)
+    return rewrite(text, sys_dir)
+
+
+def install_codex(sys_dir: Path, dry: bool) -> int:
+    """Render the .claude/ command and agent files into ~/.codex/skills."""
+    skills = HOME_CODEX / "skills"
+    jobs = [(SRC / ".claude" / "commands" / "gd", "command"),
+            (SRC / ".claude" / "agents", "agent")]
+    n = 0
+    for src_dir, kind in jobs:
+        if not src_dir.is_dir():
+            say("SKIP %s (not found in repo)" % src_dir.name)
+            continue
+        for f in sorted(src_dir.glob("*.md")):
+            name = codex_skill_name(f.stem, kind)
+            out = skills / name / "SKILL.md"
+            if not dry:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(
+                    render_codex_skill(f.read_text(encoding="utf-8"),
+                                       f.stem, kind, sys_dir),
+                    encoding="utf-8")
+            n += 1
+    # The one real skill ships as-is; its frontmatter is already the shape
+    # Codex wants, so rendering it would only risk changing it.
+    ga = SRC / ".claude" / "skills" / "godot-api"
+    if ga.is_dir():
+        for f in sorted(ga.rglob("*")):
+            if not f.is_file():
+                continue
+            out = skills / "godot-api" / f.relative_to(ga)
+            if not dry:
+                out.parent.mkdir(parents=True, exist_ok=True)
+                if f.suffix.lower() == ".md":
+                    out.write_text(rewrite(f.read_text(encoding="utf-8"), sys_dir),
+                                   encoding="utf-8")
+                else:
+                    shutil.copy2(f, out)
+            n += 1
+    say("%-18s %d file(s) -> %s" % ("codex skills:", n, skills))
+    return n
 
 
 def copy_system(sys_dir: Path, link: bool, dry: bool) -> str:
@@ -175,9 +311,51 @@ def run_setup(sys_dir: Path) -> bool:
     return r.returncode == 0
 
 
+def hosts_present() -> list:
+    """Which front-ends look installed on this machine."""
+    out = []
+    if HOME_CLAUDE.is_dir():
+        out.append("claude")
+    if HOME_CODEX.is_dir():
+        out.append("codex")
+    return out
+
+
+def system_home(hosts: list) -> Path:
+    """Where the one shared system payload lives.
+
+    One payload, however many front-ends: two copies would mean two
+    `gd version` fingerprints on one machine, and a verdict could then name a
+    toolchain the other front-end had already moved past.
+
+    An existing install wins over any preference. Installing the Codex
+    front-end on a machine that already has the system under ~/.claude must
+    *reuse* it, not plant a second copy next door - which is the whole point of
+    the rule, and the easiest place to break it.
+    """
+    for home in (HOME_CLAUDE, HOME_CODEX):
+        if (home / SYS_NAME / "config.json").exists():
+            return home
+    return HOME_CLAUDE if "claude" in hosts else HOME_CODEX
+
+
+def resolve_hosts(want: str) -> list:
+    if want in ("claude", "codex"):
+        return [want]
+    if want == "both":
+        return ["claude", "codex"]
+    found = hosts_present()
+    # Nothing detected is not an error: Claude is the historical default, and a
+    # first install on a clean machine should still land somewhere sensible.
+    return found or ["claude"]
+
+
 def install(a) -> int:
-    sys_dir = HOME_CLAUDE / SYS_NAME
-    print("\nGatekeeper -> " + str(HOME_CLAUDE))
+    hosts = resolve_hosts(getattr(a, "host", "auto"))
+    sys_home = system_home(hosts)
+    sys_dir = sys_home / SYS_NAME
+    print("\nGatekeeper -> " + ", ".join(hosts))
+    print("  system:  " + str(sys_dir) + "   (shared by every front-end)")
     if a.dry_run:
         print("  (dry run - nothing will be written)")
     print("")
@@ -193,27 +371,37 @@ def install(a) -> int:
     say("system:   " + copy_system(sys_dir, a.link, a.dry_run) + " -> " + str(sys_dir))
 
     total = 0
-    for dest_rel, src_dir in PAYLOAD:
-        if not src_dir.is_dir():
-            say("SKIP %s (not found in repo)" % dest_rel)
-            continue
-        dest = HOME_CLAUDE / dest_rel
-        n = 0
-        for f in sorted(src_dir.rglob("*")):
-            if not f.is_file() or f.suffix.lower() not in (".md", ".json"):
+    if "claude" in hosts:
+        for dest_rel, src_dir in PAYLOAD:
+            if not src_dir.is_dir():
+                say("SKIP %s (not found in repo)" % dest_rel)
                 continue
-            out = dest / f.relative_to(src_dir)
-            if not a.dry_run:
-                out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_text(rewrite(f.read_text(encoding="utf-8"), sys_dir),
-                               encoding="utf-8")
-            n += 1
-        total += n
-        say("%-18s %d file(s) -> %s" % (dest_rel + ":", n, dest))
+            dest = HOME_CLAUDE / dest_rel
+            n = 0
+            for f in sorted(src_dir.rglob("*")):
+                if not f.is_file() or f.suffix.lower() not in (".md", ".json"):
+                    continue
+                out = dest / f.relative_to(src_dir)
+                if not a.dry_run:
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_text(rewrite(f.read_text(encoding="utf-8"), sys_dir),
+                                   encoding="utf-8")
+                n += 1
+            total += n
+            say("%-18s %d file(s) -> %s" % (dest_rel + ":", n, dest))
+    if "codex" in hosts:
+        total += install_codex(sys_dir, a.dry_run)
     say("rewrote %d file(s) to use absolute paths" % total)
 
-    for note in merge_settings(sys_dir, a.dry_run):
-        say("settings: " + note)
+    if "claude" in hosts:
+        for note in merge_settings(sys_dir, a.dry_run):
+            say("settings: " + note)
+    if "codex" in hosts:
+        # Codex approves commands through its own sandbox policy, not through a
+        # permissions list we could merge, so there is nothing to write here -
+        # and writing to config.toml would be editing a file the user owns.
+        say("settings: codex approves commands through its own sandbox policy; "
+            "nothing written to config.toml")
 
     if a.dry_run:
         say("toolchain: would run `gd setup` if %s is absent" % MACHINE_CONFIG.name)
@@ -246,11 +434,25 @@ def install(a) -> int:
         print((d.stdout or "")[-1800:])
         print((d.stderr or "")[-500:], file=sys.stderr)
 
+    how = []
+    if "claude" in hosts:
+        how.append("  Claude Code:   /gd:new  a snowbound cabin at night, "
+                   "one fire, something out there\n"
+                   "                 /gd:run")
+    if "codex" in hosts:
+        how.append("  Codex:         $gd-new  a snowbound cabin at night, "
+                   "one fire, something out there\n"
+                   "                 $gd-run")
     print("""
-Done. In any Claude Code session, from any directory:
+Done. From any directory:
 
-    /gd:new     a snowbound cabin at night, one fire, something out there
-    /gd:run
+%s
+
+Both front-ends drive the same `gd`, the same harness and the same gates.
+`gd models --host all` shows what each one routes to; `gd config` prints which
+host is active and why.
+""" % "\n".join(how))
+    print("""\
 
 `.planning/` and `game/` are created in whatever directory you are working in,
 not in the install - so each game keeps its own contracts, and nothing one game
@@ -271,10 +473,26 @@ To pin the workspace explicitly, set GD_PROJECT to its path.
 
 
 def uninstall(a) -> int:
-    sys_dir = HOME_CLAUDE / SYS_NAME
-    print("\nRemoving Gatekeeper from " + str(HOME_CLAUDE) + "\n")
-    targets = [sys_dir, HOME_CLAUDE / "commands" / "gd",
-               HOME_CLAUDE / "skills" / "godot-api"]
+    hosts = resolve_hosts(getattr(a, "host", "auto"))
+    sys_home = system_home(hosts)
+    sys_dir = sys_home / SYS_NAME
+    print("\nRemoving Gatekeeper (%s) from %s\n" % (", ".join(hosts), sys_home))
+    # Removing one front-end must not take the shared payload with it, or the
+    # other front-end is left with commands pointing at nothing.
+    other = {"claude", "codex"} - set(hosts)
+    targets = [] if other else [sys_dir]
+    if other:
+        say("system:   kept at %s (still used by %s)"
+            % (sys_dir, ", ".join(sorted(other))))
+    if "claude" in hosts:
+        targets += [HOME_CLAUDE / "commands" / "gd",
+                    HOME_CLAUDE / "skills" / "godot-api"]
+    if "codex" in hosts:
+        skills = HOME_CODEX / "skills"
+        targets.append(skills / "godot-api")
+        if skills.is_dir():
+            targets += [d for d in sorted(skills.iterdir())
+                        if d.is_dir() and d.name.startswith("gd-")]
     for t in targets:
         if t.exists() or t.is_symlink():
             if not a.dry_run:
@@ -283,9 +501,9 @@ def uninstall(a) -> int:
                 except OSError:
                     shutil.rmtree(t, ignore_errors=True)
             say(("would remove " if a.dry_run else "removed ") + str(t))
-    agents = HOME_CLAUDE / "agents"
     n = 0
-    if agents.is_dir():
+    agents = HOME_CLAUDE / "agents"
+    if "claude" in hosts and agents.is_dir():
         for f in sorted(agents.glob("gd-*.md")):
             if not a.dry_run:
                 f.unlink()
@@ -319,6 +537,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-setup", action="store_true",
                     help="do not run the toolchain wizard")
+    ap.add_argument("--host", default="auto",
+                    choices=["auto", "claude", "codex", "both"],
+                    help="which front-end(s) to install for "
+                         "(default: auto - whichever are present)")
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--purge", action="store_true",
                     help="with --uninstall: also remove the machine config and API cache")

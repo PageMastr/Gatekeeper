@@ -13,7 +13,8 @@ decision without a reason gets changed back by the next person who looks at the
 bill.
 
 ```bash
-python gatekeeper/bin/gd.py models      # the table, plus drift detection
+python gatekeeper/bin/gd.py models              # the active host's table
+python gatekeeper/bin/gd.py models --host all   # every host, side by side
 ```
 
 Two places name a model and they must agree: `models.agents` in the config (what
@@ -25,7 +26,52 @@ would tell you.
 A `model` column in a phase's `PLAN.md` overrides the default for one job. Leave
 it blank unless you have a reason.
 
+## Two hosts, one routing decision
+
+The system runs under **Claude Code** and **Codex**. Almost nothing differs: the
+gates, the harness, the budget, the Color Bible and every law are about Godot
+and Blender, not about what is holding the keyboard. Three things do.
+
+| | Claude Code | Codex |
+|---|---|---|
+| a command | `/gd:run` | `$gd-run` |
+| an agent | `.claude/agents/gd-mechanics.md` | the skill `$gd-agent-mechanics` |
+| dispatching a job | Task tool, `subagent_type` | `codex exec -m <model> "<job>"` |
+| per-agent model | `model:` frontmatter | **none — a skill cannot pin a model** |
+
+That last row is the one with consequences. On Claude two surfaces name a model
+and they can disagree, so `gd models` checks them. On Codex there is one, so
+there is nothing to drift against — and `gd models --host codex` says exactly
+that, rather than reporting ten agents as "missing a file", which would be noise
+dressed as a warning.
+
+**The roles and their reasons are host-neutral and stored once.** Only the tier
+names differ, under `models.hosts.<host>`:
+
+```
+claude   haiku        -> sonnet        -> opus         -> fable
+codex    gpt-5.6-luna -> gpt-5.6-terra -> gpt-5.6-sol  -> gpt-6-astra
+```
+
+The active host is `GD_HOST`, else `models.host` in config, else detected from
+the environment (`CLAUDECODE` / `CODEX_*`). `gd config` prints which, and why.
+
+**Codex's ladder is a first pass.** It was mapped by matching each role's
+*capability need*, not by lining the two ladders up rung for rung — the four
+taste roles sit at the top on both hosts, but the engine roles start at
+`gpt-5.6-terra` with two rungs above them rather than at the third rung. Tune it
+against real escalation counts, and write the reason into the config when you do.
+
+**A Codex session is still one job, one fresh session.** `codex exec` starting a
+new process per job is not a workaround for a missing Task tool; it is Law 2
+with a different spelling, and the context-hygiene argument below applies
+unchanged.
+
 ## The roles
+
+The `model` column is Claude's. `gd models --host codex` prints the same table
+with Codex's tiers; the **why** is the same sentence on both, because it is a
+statement about the role, not about the model.
 
 | role | agent | model | why |
 |---|---|---|---|
@@ -49,9 +95,14 @@ answer from a gate-facing agent costs more than the tier saves.
 `gd run` owns this, so no agent can talk itself into one more attempt:
 
 ```
-haiku → sonnet → opus → fable
+claude   haiku → sonnet → opus → fable
+codex    gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol → gpt-6-astra
+
 3 attempts at the job's tier → climb → 3 more → … → 3 at the top → stop
 ```
+
+The number of attempts is host-neutral: three tries before climbing is a
+statement about when to stop trying, not about any particular model.
 
 A job that exhausts the ladder is **not** a model problem. Three failures at the
 top tier means the job is underspecified or its gate asserts the wrong thing —

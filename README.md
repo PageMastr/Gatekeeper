@@ -1,7 +1,8 @@
 # Gatekeeper
 
 A spec-driven, context-engineered system for building games with **Godot** and
-**Blender**, using [Claude Code](https://claude.com/claude-code).
+**Blender**, using [Claude Code](https://claude.com/claude-code) or
+[Codex](https://developers.openai.com/codex).
 
 It is named for what it does. Every step of a game build here ends at a gate
 that was written *before* the work started, and nothing moves forward until the
@@ -18,12 +19,19 @@ cd Gatekeeper
 python install.py
 ```
 
-Then, in any directory, in Claude Code:
+It installs for whichever front-ends you have. Then, in any directory:
 
 ```
-/gd:new   a snowbound cabin at night, one fire, something out there
-/gd:run
+Claude Code    /gd:new   a snowbound cabin at night, one fire, something out there
+               /gd:run
+
+Codex          $gd-new   a snowbound cabin at night, one fire, something out there
+               $gd-run
 ```
+
+Same system, same gates, same numbers on both — only the way you type a command
+and the names of the models differ. `gd models --host all` shows the routing for
+each; `gd config` says which front-end is active and why.
 
 **New here? [`QUICKSTART.md`](QUICKSTART.md)** walks through it in five minutes.
 
@@ -117,17 +125,71 @@ crash, or a `/clear` — `/gd:run` picks up exactly where it stopped.
 ## Install
 
 **Requirements:** Python 3.10+, Godot 4.4+ (an editor build), Blender 4.0+, git,
-and Claude Code.
+and Claude Code and/or Codex.
 
 No Godot source checkout is needed — a release download from
 [godotengine.org](https://godotengine.org) is enough.
 
 ```bash
-python install.py             # copy into ~/.claude, then run the setup wizard
-python install.py --link      # symlink instead, so repo edits take effect live
-python install.py --dry-run   # show what it would do
-python install.py --uninstall # remove it (--purge also drops the machine config)
+python install.py               # whichever front-ends are present, then the setup wizard
+python install.py --link        # symlink instead, so repo edits take effect live
+python install.py --dry-run     # show what it would do, change nothing
+python install.py --uninstall   # remove it (--purge also drops the machine config)
 ```
+
+### Choosing a front-end
+
+`--host` decides which CLIs get the commands. The default, `auto`, installs for
+whichever it finds on the machine.
+
+| command | installs for | use when |
+|---|---|---|
+| `python install.py` | whichever are present | the normal case |
+| `python install.py --host claude` | Claude Code only | you have both but only want one driving it |
+| `python install.py --host codex` | Codex only | same, the other way round |
+| `python install.py --host both` | both | you are about to install the second CLI, or you keep them on different machines |
+
+`--host` works with every other flag, and with `--uninstall` — so
+`python install.py --uninstall --host codex` removes the Codex skills and leaves
+Claude Code exactly as it was.
+
+Not sure what it will do? `--dry-run` names the front-ends it detected and
+counts the files it would write, without touching anything:
+
+```
+$ python install.py --dry-run
+Gatekeeper -> claude, codex
+  system:  ~/.claude/gatekeeper   (shared by every front-end)
+  (dry run - nothing will be written)
+
+  system:   would copy -> ~/.claude/gatekeeper
+  commands/gd:       17 file(s) -> ~/.claude/commands/gd
+  agents:            10 file(s) -> ~/.claude/agents
+  skills/godot-api:  1 file(s) -> ~/.claude/skills/godot-api
+  codex skills:      28 file(s) -> ~/.codex/skills
+  rewrote 56 file(s) to use absolute paths
+```
+
+If the system is already installed, a later `--host codex` **reuses** that
+install rather than planting a second copy; and `--uninstall --host codex`
+leaves the shared payload alone because Claude Code is still using it.
+
+### What each front-end gets
+
+| | Claude Code | Codex |
+|---|---|---|
+| run a command | `/gd:run` | `$gd-run` |
+| the agents | `~/.claude/agents/gd-*.md` | `~/.codex/skills/gd-agent-*/` |
+| instructions file | `CLAUDE.md` | `AGENTS.md` (points at `CLAUDE.md`) |
+| permissions | two entries merged into `settings.json` | nothing written — Codex uses its own sandbox policy |
+
+The Codex skills are **rendered from `.claude/` at install time**, so a command
+or an agent is written in exactly one place. Editing the generated skills is
+pointless: the next install overwrites them. Change the file in `.claude/` and
+re-run the installer.
+
+Both front-ends drive the same `gd`, the same harness and the same gates.
+Only the way you type a command and the names of the models differ.
 
 The installer ends by running **`gd setup`**, which searches your machine for
 Godot and Blender, verifies each by actually running it, prefers the Windows
@@ -150,8 +212,23 @@ It places:
 | `~/.claude/settings.json` | two permissions **merged in** — your existing settings are preserved and backed up to `settings.json.gd-backup` |
 | `~/.claude/gatekeeper.machine.json` | **your** Godot and Blender paths. Written by `gd setup`, **never touched by install** |
 | `~/.claude/gatekeeper-cache/` | the generated API index, keyed by engine build |
+| `~/.codex/skills/gd-*/` | the same commands as Codex skills — `$gd-run`, `$gd-new`, … |
+| `~/.codex/skills/gd-agent-*/` | the same agents as Codex skills |
+| `~/.codex/skills/godot-api/` | the API-lookup skill |
 
-The last two sit *beside* the install rather than inside it, because
+**The system payload is installed once and shared.** Two copies would mean two
+`gd version` fingerprints on one machine, and a verdict could then name a
+toolchain the other front-end had already moved past. On a Codex-only machine it
+lands under `~/.codex/` instead; `gd doctor` prints the resolved root.
+
+Nothing is written to `~/.codex/config.toml` — Codex approves commands through
+its own sandbox policy, and that file is yours.
+
+The Codex skills are **rendered from `.claude/` at install time**, not authored
+separately, so a command exists in exactly one place. Hand-editing them is
+pointless: the next install overwrites them.
+
+The last two Claude entries sit *beside* the install rather than inside it, because
 `install.py` replaces the payload wholesale. An upgrade that silently unset your
 engine path would be indistinguishable from a broken release.
 
@@ -168,10 +245,13 @@ Three config layers, lowest precedence first:
 | # | file | holds | lifetime |
 |---|---|---|---|
 | 1 | `~/.claude/gatekeeper/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths** | replaced on every upgrade |
-| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup` |
+| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`; one file, shared by every front-end |
 | 3 | `<your game>/.planning/config.json` | that game's numbers | lives in the game's repo |
 
-`gd config` prints all three and which layer each value came from.
+`gd config` prints all three, which layer each value came from, and which
+front-end is active. Model routing is the only host-dependent thing in the
+file — budget, playtest defaults and the snap grid describe the game and the
+engine, not the thing driving them.
 `GD_GODOT` / `GD_BLENDER` / `GD_GODOT_SOURCE` override on top, per shell.
 
 The API index comes from the engine's own class reference — read from a source
@@ -245,7 +325,7 @@ Doctrine that is only written down gets skipped. These are mechanical:
 | a run that asserted nothing is not a pass | the harness refuses to report `passed` with no evaluated checks |
 | a verdict must prove it belongs to its plan | name and check-set are cross-validated; a mismatch is refused, not reported |
 | no Godot 3 API | `gd check` = the engine's own analyser + a 3.x-ism scan |
-| model routing has a reason | stored per agent in config; `gd models` flags drift vs agent frontmatter |
+| model routing has a reason | stored per agent in config, once, host-neutral; `gd models --host all` shows what each front-end resolves it to, and flags drift vs agent frontmatter where the host has one |
 | a failing job escalates, then stops | `gd run` owns the ladder — no agent grants itself a fourth attempt |
 | an incomplete plan cannot be driven | `gd run init` refuses placeholder gates, untitled jobs and unrunnable gate commands |
 | a builder cannot write its own gate | `gd run init` refuses a plan that puts a playtest plan in a builder's `touches` |

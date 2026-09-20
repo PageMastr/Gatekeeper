@@ -4,6 +4,29 @@ Nothing in this system hardcodes a path to Godot or Blender. They are discovered
 once per machine and recorded outside the install, so the same checkout works on
 anyone's disk.
 
+## Front-ends
+
+The system runs under **Claude Code** and **Codex**, and the toolchain is the
+same under both — one `gd setup`, one machine config, one API cache, one
+`gd version` fingerprint. A front-end changes how you type a command and which
+models a job is dispatched to; it does not change which Godot you are running.
+
+```bash
+python install.py                 # whichever front-ends are present
+python install.py --host claude   # just Claude Code
+python install.py --host codex    # just Codex
+python install.py --host both     # both, even if one is not installed yet
+```
+
+The system payload is installed **once** and shared (`~/.claude/gatekeeper/`,
+or `~/.codex/gatekeeper/` on a Codex-only machine — `gd doctor` prints the
+resolved root). Two copies would mean two fingerprints on one machine, and a
+verdict could then name a toolchain the other front-end had already moved past.
+
+`gd config` prints the active host and how it was chosen: `GD_HOST`, else
+`models.host` in config, else detected from the environment. Model routing per
+host is in `references/model-routing.md`.
+
 ## Where the paths live
 
 ```bash
@@ -18,7 +41,7 @@ Three layers, lowest precedence first:
 | # | file | holds | lifetime |
 |---|---|---|---|
 | 1 | `<install>/gatekeeper/config.json` | shipped defaults: budget, playtest defaults, model routing. **No paths.** | replaced on every upgrade |
-| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by `install.py` |
+| 2 | `~/.claude/gatekeeper.machine.json` | this machine's Godot and Blender | written by `gd setup`, never touched by `install.py`. **One file, shared by every front-end** — the engines do not change because the thing driving them did. `GD_MACHINE_CONFIG` moves it |
 | 3 | `<game>/.planning/config.json` | that game's numbers | lives in the game's own repo |
 
 Then `GD_GODOT`, `GD_BLENDER` and `GD_GODOT_SOURCE` on top, as a per-shell
